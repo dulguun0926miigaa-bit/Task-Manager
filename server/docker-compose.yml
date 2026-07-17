@@ -1,0 +1,42 @@
+version: '3.9'
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: taskflow-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: taskflow
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: taskflow-server
+    depends_on:
+      - mysql
+    environment:
+      PORT: 5000
+      NODE_ENV: development
+      DATABASE_URL: mysql://root:password@mysql:3306/taskflow
+      JWT_SECRET: taskflow-super-secret
+      JWT_REFRESH_SECRET: taskflow-refresh-secret
+      CLIENT_URL: http://localhost:5173
+    ports:
+      - '5000:5000'
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: taskflow-client
+    depends_on:
+      - server
+    ports:
+      - '5173:5173'
+
+volumes:
+  mysql_data:

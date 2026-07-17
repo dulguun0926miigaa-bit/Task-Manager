@@ -1,16 +1,9 @@
 import { prisma } from '../lib/prisma.js';
+import { canManageProjectMembers, createProjectNotification, getWorkspaceMembership as getWorkspaceMembershipService, userHasProjectAccess as userHasProjectAccessService, buildProjectMemberPayload } from '../services/projectService.js';
 
-const getWorkspaceMembership = async (workspaceId, userId) => prisma.membership.findFirst({ where: { groupId: workspaceId, userId } });
+const getWorkspaceMembership = async (workspaceId, userId) => getWorkspaceMembershipService(workspaceId, userId);
 
-const userHasProjectAccess = async (projectId, userId) => {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { workspaceId: true },
-  });
-  if (!project) return false;
-  const membership = await prisma.membership.findFirst({ where: { groupId: project.workspaceId, userId } });
-  return Boolean(membership);
-};
+const userHasProjectAccess = async (projectId, userId) => userHasProjectAccessService(projectId, userId);
 
 const addActivity = async ({ userId, projectId, entity, action, details }) => {
   if (!projectId) return;
@@ -102,6 +95,21 @@ export const createProject = async (req, res, next) => {
     await prisma.issueType.createMany({
       data: defaultIssueTypes.map((issueType) => ({ ...issueType, projectId: project.id })),
       skipDuplicates: true,
+    });
+
+    await prisma.projectMembership.create({
+      data: {
+        projectId: project.id,
+        userId: req.user.id,
+        role: 'OWNER',
+      },
+    });
+
+    await prisma.chatRoom.create({
+      data: {
+        projectId: project.id,
+        name: `${name} Chat`,
+      },
     });
 
     await addActivity({ userId: req.user.id, projectId: project.id, entity: 'project', action: 'created', details: `Project ${name} was created` });
@@ -212,11 +220,19 @@ export const toggleFavoriteProject = async (req, res, next) => {
 export const addProjectMember = async (req, res, next) => {
   try {
     const projectId = req.params.id;
-    if (!(await userHasProjectAccess(projectId, req.user.id))) {
-      return res.status(403).json({ message: 'Not allowed' });
+    if (!(await canManageProjectMembers(projectId, req.user.id))) {
+      return res.status(403).json({ message: 'Only workspace owners and project admins can manage members' });
     }
 
     const { userId, role = 'MEMBER' } = req.body;
+    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { workspaceId: true } });
+    if (!project) return res.status(404).json({ message: 'Project not found' });
+
+    const workspaceMembership = await getWorkspaceMembership(project.workspaceId, userId);
+    if (!workspaceMembership) {
+      return res.status(400).json({ message: 'User must be a workspace member first' });
+    }
+
     const existing = await prisma.projectMembership.findFirst({ where: { projectId, userId } });
     if (existing) {
       return res.status(409).json({ message: 'User already a member' });
@@ -224,7 +240,61 @@ export const addProjectMember = async (req, res, next) => {
 
     const membership = await prisma.projectMembership.create({ data: { projectId, userId, role } });
     await addActivity({ userId: req.user.id, projectId, entity: 'project', action: 'member_added', details: `Member ${userId} was added` });
+    await createProjectNotification({
+      userId,
+      type: 'project:added',
+      title: 'Added to project',
+      message: 'You were added to a project',
+      projectId,
+      actorId: req.user.id,
+      metadata: { projectId },
+    });
     res.status(201).json({ membership });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateProjectMember = async (req, res, next) => {
+  try {
+    const projectId = req.params.id;
+    const membershipId = req.params.memberId;
+    if (!(await canManageProjectMembers(projectId, req.user.id))) {
+      return res.status(403).json({ message: 'Only workspace owners and project admins can manage members' });
+    }
+
+    const { role } = req.body;
+    const membership = await prisma.projectMembership.update({ where: { id: membershipId }, data: { role } });
+    await addActivity({ userId: req.user.id, projectId, entity: 'project', action: 'member_updated', details: `Member role updated to ${role}` });
+    res.json({ membership });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const removeProjectMember = async (req, res, next) => {
+  try {
+    const projectId = req.params.id;
+    const membershipId = req.params.memberId;
+    if (!(await canManageProjectMembers(projectId, req.user.id))) {
+      return res.status(403).json({ message: 'Only workspace owners and project admins can manage members' });
+    }
+
+    const membership = await prisma.projectMembership.findUnique({ where: { id: membershipId } });
+    if (!membership) return res.status(404).json({ message: 'Member not found' });
+
+    await prisma.projectMembership.delete({ where: { id: membershipId } });
+    await addActivity({ userId: req.user.id, projectId, entity: 'project', action: 'member_removed', details: `Member ${membership.userId} was removed` });
+    await createProjectNotification({
+      userId: membership.userId,
+      type: 'project:removed',
+      title: 'Removed from project',
+      message: 'You were removed from a project',
+      projectId,
+      actorId: req.user.id,
+      metadata: { projectId },
+    });
+    res.json({ message: 'Member removed' });
   } catch (error) {
     next(error);
   }
@@ -236,8 +306,24 @@ export const listProjectMembers = async (req, res, next) => {
     if (!(await userHasProjectAccess(projectId, req.user.id))) {
       return res.status(403).json({ message: 'Not allowed' });
     }
-    const memberships = await prisma.projectMembership.findMany({ where: { projectId }, include: { user: { select: { id: true, username: true, email: true } } } });
-    res.json({ memberships });
+
+    const query = req.query.q?.toString() || '';
+    const onlineUserIds = req.app.locals?.onlineUsers || [];
+    const memberships = await prisma.projectMembership.findMany({
+      where: {
+        projectId,
+        OR: query
+          ? [
+              { user: { username: { contains: query } } },
+              { user: { email: { contains: query } } },
+            ]
+          : undefined,
+      },
+      include: { user: { select: { id: true, username: true, email: true, avatar: true } } },
+      orderBy: { joinedAt: 'asc' },
+    });
+
+    res.json({ memberships: memberships.map((membership) => buildProjectMemberPayload(membership, onlineUserIds)) });
   } catch (error) {
     next(error);
   }

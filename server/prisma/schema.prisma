@@ -34,6 +34,9 @@ model User {
   groupMessages      GroupMessage[]
   readReceipts       ReadReceipt[]
   projectMemberships ProjectMembership[]
+  sentMessages       Message[]             @relation("MessageSender")
+  messageReads       MessageRead[]         @relation("MessageReader")
+  messageReactions   MessageReaction[]     @relation("MessageReactor")
 
   @@map("users")
 }
@@ -239,6 +242,7 @@ model Project {
   issueTypes      IssueType[]
   customFields    CustomField[]
   automationRules AutomationRule[]    @relation("AutomationRules")
+  chatRoom        ChatRoom?
 
   @@map("projects")
 }
@@ -332,16 +336,82 @@ model Attachment {
   @@map("attachments")
 }
 
-model Notification {
+model ChatRoom {
+  id        String    @id @default(cuid())
+  projectId String    @unique
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@map("chat_rooms")
+}
+
+model Message {
+  id            String             @id @default(cuid())
+  chatRoomId    String
+  senderId      String
+  content       String?
+  imageUrl      String?
+  fileUrl       String?
+  fileName      String?
+  fileType      String?
+  fileSize      Int?
+  replyToId     String?
+  editedAt      DateTime?
+  deletedAt     DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  chatRoom      ChatRoom           @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  sender        User               @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo       Message?           @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies       Message[]          @relation("MessageReplies")
+  reactions     MessageReaction[]
+  reads         MessageRead[]
+
+  @@map("messages")
+}
+
+model MessageRead {
   id        String   @id @default(cuid())
+  messageId String
   userId    String
-  type      String
-  title     String
-  message   String
-  isRead    Boolean  @default(false)
+  readAt    DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation("MessageReader", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@map("message_reads")
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
   createdAt DateTime @default(now())
-  metadata  String?
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation("MessageReactor", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@map("message_reactions")
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String
+  title      String
+  message    String
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  metadata   String?
+  projectId  String?
+  chatRoomId String?
+  messageId  String?
+  actorId    String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notifications")
 }

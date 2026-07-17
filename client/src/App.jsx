@@ -1,0 +1,1000 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import axios from 'axios';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import { io } from 'socket.io-client';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const api = axios.create({ baseURL: API_BASE_URL });
+
+const getStoredToken = () => localStorage.getItem('accessToken') || '';
+
+const getAuthErrorMessage = (error) => {
+  if (!error) return 'Something went wrong. Please try again.';
+
+  if (axios.isAxiosError(error)) {
+    if (error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED' || error.message === 'Network Error') {
+      return 'The server is currently unavailable. Please make sure the backend is running on http://localhost:5000.';
+    }
+
+    if (error.response?.status === 401) {
+      return 'Invalid email or password.';
+    }
+
+    if (error.response?.status === 409) {
+      return 'An account with this email already exists.';
+    }
+
+    if (error.response?.data?.message) {
+      return error.response.data.message;
+    }
+  }
+
+  return 'Unable to complete the request. Please try again.';
+};
+
+const AuthPage = ({ onAuthenticated }) => {
+  const [mode, setMode] = useState('login');
+  const [form, setForm] = useState({ username: '', email: '', password: '' });
+  const navigate = useNavigate();
+
+  const loginMutation = useMutation({
+    mutationFn: (payload) => api.post('/auth/login', payload),
+    onSuccess: (res) => {
+      const token = res.data.accessToken;
+      localStorage.setItem('accessToken', token);
+      api.defaults.headers.common.Authorization = `Bearer ${token}`;
+      onAuthenticated(res.data.user);
+      toast.success('Signed in successfully');
+      navigate('/dashboard');
+    },
+    onError: (error) => toast.error(getAuthErrorMessage(error)),
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: (payload) => api.post('/auth/register', payload),
+    onSuccess: () => {
+      toast.success('Account created. Please sign in.');
+      setMode('login');
+    },
+    onError: (error) => toast.error(getAuthErrorMessage(error)),
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (mode === 'login') {
+      loginMutation.mutate({ email: form.email, password: form.password });
+    } else {
+      registerMutation.mutate({ username: form.username, email: form.email, password: form.password });
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="mx-auto flex max-w-6xl flex-col items-center justify-center px-6 py-20">
+        <div className="w-full max-w-2xl rounded-3xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
+          <div className="mb-8 flex items-center justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.3em] text-cyan-400">TaskFlow Pro</p>
+              <h1 className="mt-2 text-3xl font-semibold">Collaborate in real time</h1>
+            </div>
+            <div className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-sm text-cyan-300">Live workspace</div>
+          </div>
+          <div className="mb-6 flex gap-2">
+            <button className={`rounded-full px-4 py-2 ${mode === 'login' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`} onClick={() => setMode('login')}>
+              Sign in
+            </button>
+            <button className={`rounded-full px-4 py-2 ${mode === 'register' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`} onClick={() => setMode('register')}>
+              Create account
+            </button>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {mode === 'register' && (
+              <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3" placeholder="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+            )}
+            <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3" placeholder="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3" placeholder="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+            <button className="w-full rounded-xl bg-cyan-500 px-4 py-3 font-semibold text-slate-950" type="submit" disabled={loginMutation.isPending || registerMutation.isPending}>
+              {mode === 'login' ? 'Sign in' : 'Create account'}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const DashboardPage = ({ user, onLogout }) => {
+  const queryClient = useQueryClient();
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [showWorkspaceSettingsModal, setShowWorkspaceSettingsModal] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showProjectMembersModal, setShowProjectMembersModal] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(null);
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [groupForm, setGroupForm] = useState({ name: '', description: '', privacy: 'PUBLIC', image: '' });
+  const [projectForm, setProjectForm] = useState({ name: '', key: '' });
+  const [projectMemberSearch, setProjectMemberSearch] = useState('');
+  const [projectMemberForm, setProjectMemberForm] = useState({ userId: '', role: 'MEMBER' });
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatImageUrl, setChatImageUrl] = useState('');
+  const [chatFileUrl, setChatFileUrl] = useState('');
+  const [chatFileName, setChatFileName] = useState('');
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatTyping, setChatTyping] = useState([]);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [replyMessageId, setReplyMessageId] = useState(null);
+  const socketRef = useRef(null);
+  const [workspaceSettingsForm, setWorkspaceSettingsForm] = useState({ name: '', description: '', privacy: 'PUBLIC', image: '', settings: { theme: 'default' } });
+  const [taskForm, setTaskForm] = useState({ title: '', description: '', priority: 'MEDIUM', status: 'TODO', dueDate: '', groupId: '', projectId: '', issueTypeId: '', parentId: '', privacy: 'PUBLIC', type: '', assignedUserIds: [] });
+  const navigate = useNavigate();
+
+  const { data: groups = [] } = useQuery({ queryKey: ['groups'], queryFn: () => api.get('/groups').then((res) => res.data.groups || []) });
+  const { data: workspaceDetails } = useQuery({
+    queryKey: ['workspace', selectedWorkspaceId],
+    queryFn: () => api.get(`/groups/${selectedWorkspaceId}`).then((res) => res.data.group || null),
+    enabled: Boolean(selectedWorkspaceId),
+  });
+  const { data: tasks = [] } = useQuery({ queryKey: ['tasks'], queryFn: () => api.get('/tasks').then((res) => res.data.tasks || []) });
+  const { data: projects = [] } = useQuery({
+    queryKey: ['projects', selectedWorkspaceId],
+    queryFn: () => api.get(`/projects?workspaceId=${selectedWorkspaceId}`).then((res) => res.data.projects || []),
+    enabled: Boolean(selectedWorkspaceId),
+  });
+  const { data: issueTypes = [] } = useQuery({
+    queryKey: ['projectIssueTypes', selectedProjectId],
+    queryFn: () => api.get(`/projects/${selectedProjectId}/issue-types`).then((res) => res.data.issueTypes || []),
+    enabled: Boolean(selectedProjectId),
+  });
+  const { data: friends = [] } = useQuery({ queryKey: ['friends'], queryFn: () => api.get('/friends').then((res) => res.data.friends || []) });
+  const { data: requests = [] } = useQuery({ queryKey: ['friendRequests'], queryFn: () => api.get('/friends/requests').then((res) => res.data.requests || []) });
+  const { data: notifications = [] } = useQuery({ queryKey: ['notifications'], queryFn: () => api.get('/notifications').then((res) => res.data.notifications || []) });
+  const { data: users = [] } = useQuery({
+    queryKey: ['users', searchTerm],
+    queryFn: () => api.get(`/users/search?q=${encodeURIComponent(searchTerm)}`).then((res) => res.data.users || []),
+    enabled: Boolean(searchTerm),
+  });
+  const { data: projectMembers = [] } = useQuery({
+    queryKey: ['projectMembers', selectedProjectId, projectMemberSearch],
+    queryFn: () => api.get(`/projects/${selectedProjectId}/members?q=${encodeURIComponent(projectMemberSearch)}`).then((res) => res.data.memberships || []),
+    enabled: Boolean(selectedProjectId),
+  });
+  const { data: chatHistory = [] } = useQuery({
+    queryKey: ['projectChat', selectedProjectId],
+    queryFn: () => api.get(`/chat/projects/${selectedProjectId}/messages`).then((res) => res.data.messages || []),
+    enabled: Boolean(selectedProjectId),
+  });
+
+  useEffect(() => {
+    if (!selectedWorkspaceId && groups.length) {
+      setSelectedWorkspaceId(groups[0].id);
+    }
+    if (selectedWorkspaceId && !groups.some((group) => group.id === selectedWorkspaceId)) {
+      setSelectedWorkspaceId(groups[0]?.id || null);
+    }
+  }, [groups, selectedWorkspaceId]);
+
+  useEffect(() => {
+    if (!selectedProjectId && projects.length) {
+      setSelectedProjectId(projects[0].id);
+    }
+    if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) {
+      setSelectedProjectId(projects[0]?.id || '');
+    }
+  }, [projects, selectedProjectId]);
+
+  useEffect(() => {
+    setChatMessages(chatHistory);
+  }, [chatHistory]);
+
+  useEffect(() => {
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+    const socket = io(socketUrl, { transports: ['websocket', 'polling'] });
+    socketRef.current = socket;
+    socket.emit('authenticate', { userId: user.id });
+    socket.emit('join-room', `user:${user.id}`);
+    socket.on('notification', (payload) => {
+      toast.success(payload.title || 'New notification');
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    });
+    socket.on('friend-request', () => {
+      queryClient.invalidateQueries({ queryKey: ['friendRequests'] });
+    });
+    socket.on('friend-accepted', () => {
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
+      queryClient.invalidateQueries({ queryKey: ['friendRequests'] });
+    });
+    socket.on('task-created', () => queryClient.invalidateQueries({ queryKey: ['tasks'] }));
+    socket.on('task-updated', () => queryClient.invalidateQueries({ queryKey: ['tasks'] }));
+    socket.on('task-assigned', () => queryClient.invalidateQueries({ queryKey: ['tasks'] }));
+    socket.on('message:send', (message) => {
+      if (!message || message.type === 'message:new') return;
+      setChatMessages((current) => [...current, message]);
+      queryClient.invalidateQueries({ queryKey: ['projectChat', selectedProjectId] });
+    });
+    socket.on('message:update', (message) => {
+      setChatMessages((current) => current.map((item) => item.id === message.id ? message : item));
+    });
+    socket.on('message:delete', ({ id }) => {
+      setChatMessages((current) => current.filter((item) => item.id !== id));
+    });
+    socket.on('message:read', ({ messageId, userId }) => {
+      if (userId === user.id) return;
+      setChatMessages((current) => current.map((item) => item.id === messageId ? { ...item, reads: [...(item.reads || []), { userId }] } : item));
+    });
+    socket.on('project:typing', (payload) => {
+      if (payload.userId === user.id) return;
+      setChatTyping((current) => current.includes(payload.userId) ? current : [...current, payload.userId]);
+    });
+    socket.on('user:online', () => queryClient.invalidateQueries({ queryKey: ['projectMembers', selectedProjectId] }));
+    socket.on('user:offline', () => queryClient.invalidateQueries({ queryKey: ['projectMembers', selectedProjectId] }));
+    return () => socket.disconnect();
+  }, [queryClient, selectedProjectId, user.id]);
+
+  const resetGroupForm = () => {
+    setGroupForm({ name: '', description: '', privacy: 'PUBLIC', image: '' });
+  };
+
+  const createGroupMutation = useMutation({
+    mutationFn: (payload) => api.post('/groups', payload),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      setShowGroupModal(false);
+      resetGroupForm();
+      setSelectedWorkspaceId(res.data.group?.id || null);
+      toast.success('Workspace created');
+    },
+    onError: () => toast.error('Could not create workspace'),
+  });
+
+  const resetTaskForm = () => {
+    setTaskForm({ title: '', description: '', priority: 'MEDIUM', status: 'TODO', dueDate: '', groupId: '', projectId: selectedProjectId || '', issueTypeId: '', parentId: '', privacy: 'PUBLIC', type: '', assignedUserIds: [] });
+    setEditingTaskId(null);
+  };
+
+  const createTaskMutation = useMutation({
+    mutationFn: (payload) => api.post('/tasks', payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      setShowTaskModal(false);
+      resetTaskForm();
+      toast.success('Task created');
+    },
+    onError: (error) => toast.error(error?.response?.data?.message || 'Could not create task'),
+  });
+
+  const createProjectMutation = useMutation({
+    mutationFn: (payload) => api.post('/projects', payload),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['projects', selectedWorkspaceId] });
+      setShowProjectModal(false);
+      setProjectForm({ name: '', key: '' });
+      setSelectedProjectId(res.data.project?.id || '');
+      toast.success('Project created');
+    },
+    onError: (error) => toast.error(error?.response?.data?.message || 'Could not create project'),
+  });
+
+  const updateTaskMutation = useMutation({
+    mutationFn: ({ id, payload }) => api.put(`/tasks/${id}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      setShowTaskModal(false);
+      resetTaskForm();
+      toast.success('Task updated');
+    },
+    onError: () => toast.error('Could not update task'),
+  });
+
+  const deleteTaskMutation = useMutation({
+    mutationFn: (id) => api.delete(`/tasks/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      toast.success('Task deleted');
+    },
+    onError: () => toast.error('Could not delete task'),
+  });
+
+  const sendRequestMutation = useMutation({
+    mutationFn: (receiverId) => api.post('/friends/requests', { receiverId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['friendRequests'] });
+      toast.success('Friend request sent');
+    },
+    onError: (error) => toast.error(error?.response?.data?.message || 'Unable to send request'),
+  });
+
+  const respondRequestMutation = useMutation({
+    mutationFn: ({ id, action }) => api.post(`/friends/requests/${id}/respond`, { action }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['friendRequests'] });
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
+      toast.success('Request updated');
+    },
+    onError: () => toast.error('Unable to update request'),
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: () => api.post('/notifications/read'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      toast.success('Notifications marked read');
+    },
+  });
+
+  const updateWorkspaceMutation = useMutation({
+    mutationFn: (payload) => api.put(`/groups/${selectedWorkspaceId}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      queryClient.invalidateQueries({ queryKey: ['workspace', selectedWorkspaceId] });
+      setShowWorkspaceSettingsModal(false);
+      toast.success('Workspace updated');
+    },
+    onError: () => toast.error('Could not update workspace'),
+  });
+
+  const archiveWorkspaceMutation = useMutation({
+    mutationFn: () => api.post(`/groups/${selectedWorkspaceId}/archive`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      queryClient.invalidateQueries({ queryKey: ['workspace', selectedWorkspaceId] });
+      toast.success('Workspace archived');
+    },
+    onError: () => toast.error('Could not archive workspace'),
+  });
+
+  const restoreWorkspaceMutation = useMutation({
+    mutationFn: () => api.post(`/groups/${selectedWorkspaceId}/restore`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      queryClient.invalidateQueries({ queryKey: ['workspace', selectedWorkspaceId] });
+      toast.success('Workspace restored');
+    },
+    onError: () => toast.error('Could not restore workspace'),
+  });
+
+  const inviteWorkspaceMutation = useMutation({
+    mutationFn: (payload) => api.post(`/groups/${selectedWorkspaceId}/invite`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace', selectedWorkspaceId] });
+      setInviteEmail('');
+      setShowInviteModal(false);
+      toast.success('Invitation sent');
+    },
+    onError: (error) => toast.error(error?.response?.data?.message || 'Could not invite member'),
+  });
+
+  const addMemberMutation = useMutation({
+    mutationFn: (userId) => api.post(`/groups/${selectedWorkspaceId}/members`, { userId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace', selectedWorkspaceId] });
+      toast.success('Member added');
+    },
+    onError: (error) => toast.error(error?.response?.data?.message || 'Could not add member'),
+  });
+
+  const addProjectMemberMutation = useMutation({
+    mutationFn: ({ projectId, payload }) => api.post(`/projects/${projectId}/members`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projectMembers', selectedProjectId] });
+      setProjectMemberForm({ userId: '', role: 'MEMBER' });
+      toast.success('Project member added');
+    },
+    onError: (error) => toast.error(error?.response?.data?.message || 'Could not add project member'),
+  });
+
+  const updateProjectMemberMutation = useMutation({
+    mutationFn: ({ projectId, memberId, role }) => api.put(`/projects/${projectId}/members/${memberId}`, { role }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projectMembers', selectedProjectId] });
+      toast.success('Project role updated');
+    },
+    onError: (error) => toast.error(error?.response?.data?.message || 'Could not update role'),
+  });
+
+  const removeProjectMemberMutation = useMutation({
+    mutationFn: ({ projectId, memberId }) => api.delete(`/projects/${projectId}/members/${memberId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projectMembers', selectedProjectId] });
+      toast.success('Project member removed');
+    },
+    onError: (error) => toast.error(error?.response?.data?.message || 'Could not remove member'),
+  });
+
+  const sendMessageMutation = useMutation({
+    mutationFn: (payload) => api.post(`/chat/projects/${selectedProjectId}/messages`, payload),
+    onSuccess: (res) => {
+      setChatDraft('');
+      setChatImageUrl('');
+      setChatFileUrl('');
+      setChatFileName('');
+      setEditingMessageId(null);
+      setReplyMessageId(null);
+      setChatMessages((current) => [...current, res.data.message]);
+      socketRef.current?.emit('project:message', { roomId: `project:${selectedProjectId}`, message: res.data.message });
+      queryClient.invalidateQueries({ queryKey: ['projectChat', selectedProjectId] });
+    },
+    onError: (error) => toast.error(error?.response?.data?.message || 'Could not send message'),
+  });
+
+  const editMessageMutation = useMutation({
+    mutationFn: ({ messageId, content }) => api.put(`/chat/projects/${selectedProjectId}/messages/${messageId}`, { content }),
+    onSuccess: (res) => {
+      setEditingMessageId(null);
+      setChatMessages((current) => current.map((item) => item.id === res.data.message.id ? res.data.message : item));
+      toast.success('Message updated');
+    },
+  });
+
+  const deleteMessageMutation = useMutation({
+    mutationFn: (messageId) => api.delete(`/chat/projects/${selectedProjectId}/messages/${messageId}`),
+    onSuccess: (_res, messageId) => {
+      setChatMessages((current) => current.filter((item) => item.id !== messageId));
+      toast.success('Message deleted');
+    },
+  });
+
+  const markChatReadMutation = useMutation({
+    mutationFn: (messageId) => api.post(`/chat/projects/${selectedProjectId}/messages/${messageId}/read`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projectChat', selectedProjectId] });
+    },
+  });
+
+  const reactToMessageMutation = useMutation({
+    mutationFn: ({ messageId, emoji }) => api.post(`/chat/projects/${selectedProjectId}/messages/${messageId}/reactions`, { emoji }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projectChat', selectedProjectId] });
+    },
+  });
+
+  const deleteWorkspaceMutation = useMutation({
+    mutationFn: () => api.delete(`/groups/${selectedWorkspaceId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      setSelectedWorkspaceId(null);
+      toast.success('Workspace deleted');
+    },
+    onError: () => toast.error('Could not delete workspace'),
+  });
+
+  const logoutMutation = useMutation({
+    mutationFn: () => api.post('/auth/logout'),
+    onSuccess: () => {
+      localStorage.removeItem('accessToken');
+      delete api.defaults.headers.common.Authorization;
+      onLogout();
+      navigate('/');
+    },
+  });
+
+  const selectedWorkspace = useMemo(() => {
+    return groups.find((group) => group.id === selectedWorkspaceId) || workspaceDetails || null;
+  }, [groups, selectedWorkspaceId, workspaceDetails]);
+
+  const visibleTasks = useMemo(() => {
+    if (selectedProjectId) {
+      return tasks.filter((task) => task.project?.id === selectedProjectId);
+    }
+    return tasks.filter((task) => task.groupId === selectedWorkspace?.id);
+  }, [tasks, selectedProjectId, selectedWorkspace]);
+
+  const workspaceStats = useMemo(() => {
+    const workspaceTasks = tasks.filter((task) => task.groupId === selectedWorkspace?.id);
+    return {
+      totalTasks: workspaceTasks.length,
+      completedTasks: workspaceTasks.filter((task) => task.status === 'COMPLETED').length,
+      members: selectedWorkspace?.memberships?.length || 0,
+      archived: Boolean(selectedWorkspace?.isArchived),
+    };
+  }, [selectedWorkspace, tasks]);
+
+  const taskCounts = useMemo(
+    () => ({ total: visibleTasks.length, todo: visibleTasks.filter((task) => task.status === 'TODO').length, done: visibleTasks.filter((task) => task.status === 'COMPLETED').length }),
+    [visibleTasks]
+  );
+
+  const selectedProject = useMemo(() => projects.find((project) => project.id === selectedProjectId) || null, [projects, selectedProjectId]);
+
+  return (
+    <div className="min-h-screen bg-slate-950 p-4 text-slate-100 md:p-6">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+        <header className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.3em] text-cyan-400">TaskFlow Pro</p>
+              <h1 className="text-2xl font-semibold">Welcome back, {user.username}</h1>
+            </div>
+            <div className="flex gap-2">
+              <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2" onClick={() => setShowGroupModal(true)}>New workspace</button>
+              <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2" onClick={() => setShowProjectModal(true)}>New project</button>
+              <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2" onClick={() => { resetTaskForm(); setShowTaskModal(true); }}>New task</button>
+              <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => logoutMutation.mutate()}>Logout</button>
+            </div>
+          </div>
+        </header>
+
+        <div className="grid gap-6 lg:grid-cols-[260px_1fr_320px]">
+          <aside className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-4">
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+              <p className="text-sm text-slate-400">Overview</p>
+              <div className="mt-3 space-y-2 text-sm">
+                <div className="flex justify-between"><span>Tasks</span><strong>{taskCounts.total}</strong></div>
+                <div className="flex justify-between"><span>Completed</span><strong>{taskCounts.done}</strong></div>
+                <div className="flex justify-between"><span>Friends</span><strong>{friends.length}</strong></div>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+              <p className="text-sm text-slate-400">Workspaces</p>
+              <div className="mt-3 space-y-2">
+                {groups.map((group) => (
+                  <button key={group.id} className={`w-full rounded-xl px-3 py-2 text-left text-sm ${selectedWorkspace?.id === group.id ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-800 text-slate-300'}`} onClick={() => setSelectedWorkspaceId(group.id)}>
+                    <div className="font-medium">{group.name}</div>
+                    <div className="text-xs text-slate-400">{group.description || 'Workspace'}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </aside>
+
+          <main className="space-y-6">
+            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Workspace Hub</h2>
+                <div className="flex gap-2">
+                  <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm" onClick={() => { setWorkspaceSettingsForm({ name: selectedWorkspace?.name || '', description: selectedWorkspace?.description || '', privacy: selectedWorkspace?.privacy || 'PUBLIC', image: selectedWorkspace?.image || '', settings: typeof selectedWorkspace?.settings === 'string' ? JSON.parse(selectedWorkspace.settings) : { theme: 'default' } }); setShowWorkspaceSettingsModal(true); }}>Settings</button>
+                  <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm" onClick={() => setShowInviteModal(true)}>Invite</button>
+                  <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm" onClick={() => setShowProjectMembersModal(true)}>Project members</button>
+                </div>
+              </div>
+              {selectedWorkspace ? (
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-950 p-4 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500/20 text-lg font-semibold text-cyan-300">{selectedWorkspace.image ? '●' : selectedWorkspace.name?.slice(0, 1).toUpperCase()}</div>
+                      <div>
+                        <h3 className="text-lg font-semibold">{selectedWorkspace.name}</h3>
+                        <p className="text-sm text-slate-400">{selectedWorkspace.description || 'A collaborative workspace for your team.'}</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+                      <span className={`rounded-full px-2 py-1 ${selectedWorkspace.isArchived ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'}`}>{selectedWorkspace.isArchived ? 'Archived' : 'Active'}</span>
+                      <span className="rounded-full bg-slate-800 px-2 py-1">{selectedWorkspace.privacy || 'PUBLIC'}</span>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                      <p className="text-sm text-slate-400">Tasks</p>
+                      <p className="mt-1 text-2xl font-semibold">{workspaceStats.totalTasks}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                      <p className="text-sm text-slate-400">Completed</p>
+                      <p className="mt-1 text-2xl font-semibold">{workspaceStats.completedTasks}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                      <p className="text-sm text-slate-400">Members</p>
+                      <p className="mt-1 text-2xl font-semibold">{workspaceStats.members}</p>
+                    </div>
+                  </div>
+                  <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <h4 className="font-semibold">Members</h4>
+                        <button className="rounded-xl border border-slate-700 bg-slate-800 px-2 py-1 text-xs" onClick={() => setShowInviteModal(true)}>Invite</button>
+                      </div>
+                      <div className="space-y-2">
+                        {(workspaceDetails?.memberships || selectedWorkspace.memberships || []).map((member) => (
+                          <div key={member.id} className="flex items-center justify-between rounded-xl bg-slate-800 px-3 py-2 text-sm">
+                            <div>
+                              <p className="font-medium">{member.user?.username || member.userId}</p>
+                              <p className="text-xs text-slate-400">{member.role}</p>
+                            </div>
+                            {member.role !== 'SUPER_ADMIN' && <button className="rounded-lg border border-slate-700 px-2 py-1 text-xs" onClick={() => addMemberMutation.mutate(member.userId)}>Add</button>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <h4 className="font-semibold">Activity</h4>
+                        <div className="flex gap-2">
+                          {selectedWorkspace.isArchived ? (
+                            <button className="rounded-xl border border-emerald-700 px-2 py-1 text-xs text-emerald-300" onClick={() => restoreWorkspaceMutation.mutate()}>Restore</button>
+                          ) : (
+                            <button className="rounded-xl border border-amber-700 px-2 py-1 text-xs text-amber-300" onClick={() => archiveWorkspaceMutation.mutate()}>Archive</button>
+                          )}
+                          <button className="rounded-xl border border-rose-700 px-2 py-1 text-xs text-rose-300" onClick={() => deleteWorkspaceMutation.mutate()}>Delete</button>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        {(workspaceDetails?.activityLogs || []).map((entry) => (
+                          <div key={entry.id} className="rounded-xl bg-slate-800 px-3 py-2 text-sm">
+                            <div className="font-medium">{entry.action}</div>
+                            <div className="text-xs text-slate-400">{entry.details} • {entry.user?.username || 'System'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950 p-4 text-sm text-slate-400">Create or select a workspace to see its members, activity, and stats.</div>
+              )}
+            </section>
+
+            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Tasks</h2>
+                <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm" onClick={() => { resetTaskForm(); setShowTaskModal(true); }}>Create task</button>
+              </div>
+              <div className="grid gap-3">
+                {visibleTasks.map((task) => (
+                  <div key={task.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-medium">{task.title}</h3>
+                        <p className="text-sm text-slate-400">{task.description || 'No description'}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button className="rounded-lg border border-slate-700 px-2 py-1 text-xs" onClick={() => {
+                          setTaskForm({
+                            title: task.title,
+                            description: task.description || '',
+                            priority: task.priority,
+                            status: task.status,
+                            dueDate: task.dueDate ? task.dueDate.slice(0,10) : '',
+                            groupId: task.groupId || '',
+                            projectId: task.project?.id || '',
+                            issueTypeId: task.issueType?.id || '',
+                            parentId: task.parentId || '',
+                            privacy: task.privacy || 'PUBLIC',
+                            type: task.type || '',
+                            assignedUserIds: task.assignments?.map((item) => item.userId) || [],
+                          });
+                          setEditingTaskId(task.id);
+                          setShowTaskModal(true);
+                        }}>Edit</button>
+                        <button className="rounded-lg border border-rose-700 px-2 py-1 text-xs text-rose-300" onClick={() => deleteTaskMutation.mutate(task.id)}>Delete</button>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+                      <span className="rounded-full bg-slate-800 px-2 py-1">Priority: {task.priority}</span>
+                      <span className="rounded-full bg-slate-800 px-2 py-1">Project: {task.project?.name || 'None'}</span>
+                      <span className="rounded-full bg-slate-800 px-2 py-1">Issue: {task.issueType?.name || task.type || 'General'}</span>
+                      {task.parent && <span className="rounded-full bg-slate-800 px-2 py-1">Parent: {task.parent.title}</span>}
+                      <span className="rounded-full bg-slate-800 px-2 py-1">Created by: {task.createdBy?.username || 'Unknown'}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Project chat</h2>
+                <span className="text-sm text-slate-400">{selectedProject?.name || 'Project'}</span>
+              </div>
+              <div className="mb-3 rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                <div className="mb-3 space-y-2">
+                  {chatMessages.map((message) => (
+                    <div key={message.id} className="rounded-xl bg-slate-800 p-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{message.sender?.username || 'Unknown'}</span>
+                        <span className="text-xs text-slate-400">{new Date(message.createdAt).toLocaleString()}</span>
+                      </div>
+                      {message.replyTo && <p className="text-xs text-cyan-300">Reply to: {message.replyTo.content}</p>}
+                      <p className="mt-1 text-slate-300">{message.content || (message.fileName ? `Shared file: ${message.fileName}` : 'Shared attachment')}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button className="rounded-lg border border-slate-700 px-2 py-1 text-xs" onClick={() => { setReplyMessageId(message.id); setEditingMessageId(null); }}>Reply</button>
+                        <button className="rounded-lg border border-slate-700 px-2 py-1 text-xs" onClick={() => { setEditingMessageId(message.id); setChatDraft(message.content || ''); }}>Edit</button>
+                        <button className="rounded-lg border border-rose-700 px-2 py-1 text-xs text-rose-300" onClick={() => deleteMessageMutation.mutate(message.id)}>Delete</button>
+                        <button className="rounded-lg border border-slate-700 px-2 py-1 text-xs" onClick={() => reactToMessageMutation.mutate({ messageId: message.id, emoji: '👍' })}>👍</button>
+                        <button className="rounded-lg border border-slate-700 px-2 py-1 text-xs" onClick={() => markChatReadMutation.mutate(message.id)}>Read</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {chatTyping.length > 0 && <p className="text-xs text-cyan-300">{chatTyping.length} person typing…</p>}
+                <div className="mt-3 space-y-2">
+                  {editingMessageId && <p className="text-xs text-cyan-300">Editing message…</p>}
+                  {replyMessageId && <p className="text-xs text-cyan-300">Replying to a message…</p>}
+                  <div className="flex gap-2">
+                    <input className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Type a message" value={chatDraft} onChange={(e) => { setChatDraft(e.target.value); socketRef.current?.emit('project:typing', { roomId: `project:${selectedProjectId}`, payload: { userId: user.id } }); }} />
+                    <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => {
+                      if (editingMessageId) {
+                        editMessageMutation.mutate({ messageId: editingMessageId, content: chatDraft });
+                      } else {
+                        sendMessageMutation.mutate({ content: chatDraft, replyToId: replyMessageId || undefined, imageUrl: chatImageUrl || undefined, fileUrl: chatFileUrl || undefined, fileName: chatFileName || undefined });
+                      }
+                    }}>
+                      {editingMessageId ? 'Update' : 'Send'}
+                    </button>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <input className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Image URL (optional)" value={chatImageUrl} onChange={(e) => setChatImageUrl(e.target.value)} />
+                    <input className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="File URL (optional)" value={chatFileUrl} onChange={(e) => setChatFileUrl(e.target.value)} />
+                  </div>
+                  <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="File label (optional)" value={chatFileName} onChange={(e) => setChatFileName(e.target.value)} />
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Friends</h2>
+              </div>
+              <input className="mb-4 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Search users by username" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+              <div className="grid gap-3">
+                {users.map((person) => (
+                  <div key={person.id} className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                    <div>
+                      <p className="font-medium">{person.username}</p>
+                      <p className="text-sm text-slate-400">{person.email}</p>
+                    </div>
+                    <button className="rounded-xl bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950" onClick={() => sendRequestMutation.mutate(person.id)}>
+                      Send request
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 grid gap-2">
+                {friends.map((friend) => <div key={friend.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-3 text-sm">{friend.username}</div>)}
+              </div>
+            </section>
+          </main>
+
+          <aside className="space-y-4">
+            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-semibold">Incoming requests</h2>
+              </div>
+              <div className="space-y-2">
+                {requests.map((request) => (
+                  <div key={request.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span>{request.sender?.username}</span>
+                      <div className="flex gap-2">
+                        <button className="rounded-lg bg-emerald-500/20 px-2 py-1 text-emerald-300" onClick={() => respondRequestMutation.mutate({ id: request.id, action: 'accept' })}>Accept</button>
+                        <button className="rounded-lg bg-rose-500/20 px-2 py-1 text-rose-300" onClick={() => respondRequestMutation.mutate({ id: request.id, action: 'reject' })}>Reject</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-semibold">Notifications</h2>
+                <button className="rounded-xl border border-slate-700 bg-slate-800 px-2 py-1 text-sm" onClick={() => markReadMutation.mutate()}>Mark all read</button>
+              </div>
+              <div className="space-y-2">
+                {notifications.map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-3 text-sm">
+                    <p className="font-medium">{item.title}</p>
+                    <p className="text-slate-400">{item.message}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </aside>
+        </div>
+      </div>
+
+      {showGroupModal && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900 p-6">
+            <h3 className="text-xl font-semibold">Create workspace</h3>
+            <div className="mt-4 space-y-3">
+              <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Workspace name" value={groupForm.name} onChange={(e) => setGroupForm({ ...groupForm, name: e.target.value })} />
+              <textarea className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Description" value={groupForm.description} onChange={(e) => setGroupForm({ ...groupForm, description: e.target.value })} />
+              <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Logo URL (optional)" value={groupForm.image} onChange={(e) => setGroupForm({ ...groupForm, image: e.target.value })} />
+              <select className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={groupForm.privacy} onChange={(e) => setGroupForm({ ...groupForm, privacy: e.target.value })}>
+                <option value="PUBLIC">Public</option>
+                <option value="PRIVATE">Private</option>
+              </select>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button className="rounded-xl border border-slate-700 px-3 py-2" onClick={() => { setShowGroupModal(false); resetGroupForm(); }}>Cancel</button>
+              <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => createGroupMutation.mutate(groupForm)}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showWorkspaceSettingsModal && selectedWorkspace && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900 p-6">
+            <h3 className="text-xl font-semibold">Workspace settings</h3>
+            <div className="mt-4 space-y-3">
+              <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Workspace name" value={workspaceSettingsForm.name} onChange={(e) => setWorkspaceSettingsForm({ ...workspaceSettingsForm, name: e.target.value })} />
+              <textarea className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Description" value={workspaceSettingsForm.description} onChange={(e) => setWorkspaceSettingsForm({ ...workspaceSettingsForm, description: e.target.value })} />
+              <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Logo URL (optional)" value={workspaceSettingsForm.image} onChange={(e) => setWorkspaceSettingsForm({ ...workspaceSettingsForm, image: e.target.value })} />
+              <select className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={workspaceSettingsForm.privacy} onChange={(e) => setWorkspaceSettingsForm({ ...workspaceSettingsForm, privacy: e.target.value })}>
+                <option value="PUBLIC">Public</option>
+                <option value="PRIVATE">Private</option>
+              </select>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button className="rounded-xl border border-slate-700 px-3 py-2" onClick={() => setShowWorkspaceSettingsModal(false)}>Cancel</button>
+              <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => updateWorkspaceMutation.mutate({ name: workspaceSettingsForm.name, description: workspaceSettingsForm.description, privacy: workspaceSettingsForm.privacy, image: workspaceSettingsForm.image, settings: workspaceSettingsForm.settings })}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProjectModal && selectedWorkspace && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900 p-6">
+            <h3 className="text-xl font-semibold">Create project</h3>
+            <div className="mt-4 space-y-3">
+              <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Project name" value={projectForm.name} onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })} />
+              <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Project key" value={projectForm.key} onChange={(e) => setProjectForm({ ...projectForm, key: e.target.value })} />
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button className="rounded-xl border border-slate-700 px-3 py-2" onClick={() => setShowProjectModal(false)}>Cancel</button>
+              <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => createProjectMutation.mutate({ workspaceId: selectedWorkspaceId, ...projectForm })}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showInviteModal && selectedWorkspace && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900 p-6">
+            <h3 className="text-xl font-semibold">Invite member</h3>
+            <input className="mt-4 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Member email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
+            <div className="mt-6 flex justify-end gap-2">
+              <button className="rounded-xl border border-slate-700 px-3 py-2" onClick={() => setShowInviteModal(false)}>Cancel</button>
+              <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => inviteWorkspaceMutation.mutate({ email: inviteEmail })}>Send invite</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProjectMembersModal && selectedProject && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-2xl rounded-3xl border border-slate-800 bg-slate-900 p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-xl font-semibold">Project members</h3>
+              <button className="rounded-xl border border-slate-700 px-3 py-2" onClick={() => setShowProjectMembersModal(false)}>Close</button>
+            </div>
+            <input className="mb-3 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Search by name or email" value={projectMemberSearch} onChange={(e) => setProjectMemberSearch(e.target.value)} />
+            <div className="mb-4 space-y-2">
+              {(projectMembers || []).map((member) => (
+                <div key={member.id} className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                  <div>
+                    <p className="font-medium">{member.user?.username || member.user?.email}</p>
+                    <p className="text-sm text-slate-400">{member.user?.email}</p>
+                    <p className="text-xs text-slate-500">Role: {member.role} • {member.isOnline ? 'Online' : 'Offline'}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <select className="rounded-xl border border-slate-700 bg-slate-900 px-2 py-1" value={member.role} onChange={(e) => updateProjectMemberMutation.mutate({ projectId: selectedProject.id, memberId: member.id, role: e.target.value })}>
+                      <option value="MEMBER">Member</option>
+                      <option value="ADMIN">Admin</option>
+                      <option value="OWNER">Owner</option>
+                    </select>
+                    <button className="rounded-xl border border-rose-700 px-2 py-1 text-xs text-rose-300" onClick={() => removeProjectMemberMutation.mutate({ projectId: selectedProject.id, memberId: member.id })}>Remove</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
+              <h4 className="mb-2 font-semibold">Invite workspace member</h4>
+              <div className="flex gap-2">
+                <input className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="User ID" value={projectMemberForm.userId} onChange={(e) => setProjectMemberForm({ ...projectMemberForm, userId: e.target.value })} />
+                <select className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={projectMemberForm.role} onChange={(e) => setProjectMemberForm({ ...projectMemberForm, role: e.target.value })}>
+                  <option value="MEMBER">Member</option>
+                  <option value="ADMIN">Admin</option>
+                </select>
+                <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => addProjectMemberMutation.mutate({ projectId: selectedProject.id, payload: projectMemberForm })}>Add</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTaskModal && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900 p-6">
+            <h3 className="text-xl font-semibold">{editingTaskId ? 'Edit task' : 'Create task'}</h3>
+            <div className="mt-4 space-y-3">
+              <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Task title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
+              <textarea className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
+              <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" type="date" value={taskForm.dueDate} onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })} />
+              <select className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={taskForm.priority} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}>
+                <option value="LOW">Low</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="HIGH">High</option>
+                <option value="URGENT">Urgent</option>
+              </select>
+              <select className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={taskForm.status} onChange={(e) => setTaskForm({ ...taskForm, status: e.target.value })}>
+                <option value="TODO">Todo</option>
+                <option value="IN_PROGRESS">In Progress</option>
+                <option value="REVIEW">Review</option>
+                <option value="COMPLETED">Completed</option>
+              </select>
+              <select className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={taskForm.groupId} onChange={(e) => setTaskForm({ ...taskForm, groupId: e.target.value })}>
+                <option value="">No group</option>
+                {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+              </select>
+              <select className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={taskForm.projectId} onChange={(e) => setTaskForm({ ...taskForm, projectId: e.target.value, issueTypeId: '', parentId: '' })}>
+                <option value="">No project</option>
+                {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+              </select>
+              <select className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={taskForm.issueTypeId} onChange={(e) => setTaskForm({ ...taskForm, issueTypeId: e.target.value })}>
+                <option value="">No issue type</option>
+                {issueTypes.map((issueType) => <option key={issueType.id} value={issueType.id}>{issueType.name}</option>)}
+              </select>
+              <select className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={taskForm.parentId} onChange={(e) => setTaskForm({ ...taskForm, parentId: e.target.value })}>
+                <option value="">No parent task</option>
+                {tasks
+                  .filter((task) => task.project?.id === taskForm.projectId && task.id !== editingTaskId)
+                  .map((task) => (
+                    <option key={task.id} value={task.id}>{task.title}</option>
+                  ))}
+              </select>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button className="rounded-xl border border-slate-700 px-3 py-2" onClick={() => { setShowTaskModal(false); resetTaskForm(); }}>Cancel</button>
+              <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => {
+                if (taskForm.title) {
+                  if (editingTaskId) {
+                    updateTaskMutation.mutate({ id: editingTaskId, payload: taskForm });
+                  } else {
+                    createTaskMutation.mutate(taskForm);
+                  }
+                }
+              }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(Boolean(getStoredToken()));
+
+  const initialize = async () => {
+    const token = getStoredToken();
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    api.defaults.headers.common.Authorization = `Bearer ${token}`;
+    try {
+      const res = await api.get('/users/me');
+      setUser(res.data.user);
+    } catch {
+      localStorage.removeItem('accessToken');
+      delete api.defaults.headers.common.Authorization;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    initialize();
+  }, []);
+
+  if (loading) {
+    return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">Loading workspace...</div>;
+  }
+
+  return (
+    <Routes>
+      <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <AuthPage onAuthenticated={setUser} />} />
+      <Route path="/dashboard" element={user ? <DashboardPage user={user} onLogout={() => setUser(null)} /> : <Navigate to="/" replace />} />
+    </Routes>
+  );
+}

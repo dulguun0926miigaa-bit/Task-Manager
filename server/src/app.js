@@ -12,6 +12,7 @@ import taskRoutes from './routes/taskRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import friendRoutes from './routes/friendRoutes.js';
+import chatRoutes from './routes/chatRoutes.js';
 import { errorHandler } from './middlewares/errorHandler.js';
 
 export const app = express();
@@ -42,6 +43,7 @@ app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.locals.onlineUsers = [];
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -60,5 +62,6 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/friends', friendRoutes);
+app.use('/api/chat', chatRoutes);
 
 app.use(errorHandler);

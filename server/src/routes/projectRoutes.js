@@ -7,6 +7,7 @@ import {
   addProjectIssueType,
   addProjectVersion,
   archiveProject,
+  removeProjectMember,
   createProject,
   deleteProject,
   getProjectById,
@@ -19,6 +20,7 @@ import {
   restoreProject,
   toggleFavoriteProject,
   updateProject,
+  updateProjectMember,
 } from '../controllers/projectController.js';
 
 const router = Router();
@@ -32,6 +34,8 @@ router.post('/:id/restore', authenticate, restoreProject);
 router.post('/:id/favorite', authenticate, toggleFavoriteProject);
 router.post('/:id/members', authenticate, addProjectMember);
 router.get('/:id/members', authenticate, listProjectMembers);
+router.put('/:id/members/:memberId', authenticate, updateProjectMember);
+router.delete('/:id/members/:memberId', authenticate, removeProjectMember);
 router.get('/:id/components', authenticate, listProjectComponents);
 router.post('/:id/components', authenticate, addProjectComponent);
 router.get('/:id/versions', authenticate, listProjectVersions);
