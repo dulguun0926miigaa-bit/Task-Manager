@@ -1,0 +1,68 @@
+import bcrypt from 'bcryptjs';
+import { prisma } from '../lib/prisma.js';
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt.js';
+
+export const register = async (req, res, next) => {
+  try {
+    const { username, email, password } = req.body;
+    const existing = await prisma.user.findFirst({ where: { OR: [{ email }, { username }] } });
+    if (existing) {
+      return res.status(409).json({ message: 'User already exists' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+    const user = await prisma.user.create({
+      data: { username, email, password: hashedPassword },
+      select: { id: true, username: true, email: true, avatar: true, bio: true, createdAt: true },
+    });
+
+    res.status(201).json({ user });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const login = async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const accessToken = signAccessToken({ id: user.id, email: user.email });
+    const refreshToken = signRefreshToken({ id: user.id });
+
+    await prisma.user.update({ where: { id: user.id }, data: { refreshToken } });
+
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    res.json({ accessToken, user: { id: user.id, username: user.username, email: user.email, avatar: user.avatar, bio: user.bio } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const logout = async (req, res, next) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+    if (refreshToken) {
+      const payload = verifyRefreshToken(refreshToken);
+      await prisma.user.updateMany({ where: { id: payload.id }, data: { refreshToken: null } });
+    }
+    res.clearCookie('refreshToken');
+    res.json({ message: 'Logged out' });
+  } catch (error) {
+    next(error);
+  }
+};

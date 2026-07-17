@@ -1,0 +1,458 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String              @id @default(cuid())
+  username           String              @unique
+  email              String              @unique
+  password           String
+  avatar             String?
+  bio                String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  isAdmin            Boolean             @default(false)
+  refreshToken       String?
+  sentRequests       FriendRequest[]     @relation("Sender")
+  receivedRequests   FriendRequest[]     @relation("Receiver")
+  friendshipsA       Friendship[]        @relation("UserA")
+  friendshipsB       Friendship[]        @relation("UserB")
+  memberships        Membership[]
+  ownedGroups        Group[]             @relation("Owner")
+  tasksCreated       Task[]              @relation("Creator")
+  taskAssignments    TaskAssignment[]
+  taskLabels         TaskLabel[]
+  timeEntries        TimeEntry[]
+  comments           Comment[]
+  activityLogs       ActivityLog[]
+  notifications      Notification[]
+  groupMessages      GroupMessage[]
+  readReceipts       ReadReceipt[]
+  projectMemberships ProjectMembership[]
+  sentMessages       Message[]             @relation("MessageSender")
+  messageReads       MessageRead[]         @relation("MessageReader")
+  messageReactions   MessageReaction[]     @relation("MessageReactor")
+
+  @@map("users")
+}
+
+model FriendRequest {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String
+  status     String   @default("PENDING")
+  createdAt  DateTime @default(now())
+  sender     User     @relation("Sender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver   User     @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([senderId, receiverId])
+  @@map("friend_requests")
+}
+
+model Friendship {
+  id        String   @id @default(cuid())
+  userAId   String
+  userBId   String
+  createdAt DateTime @default(now())
+  userA     User     @relation("UserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB     User     @relation("UserB", fields: [userBId], references: [id], onDelete: Cascade)
+
+  @@unique([userAId, userBId])
+  @@map("friendships")
+}
+
+model Group {
+  id           String         @id @default(cuid())
+  name         String
+  description  String?
+  image        String?
+  privacy      String         @default("PUBLIC")
+  ownerId      String
+  isArchived   Boolean        @default(false)
+  settings     String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  owner        User           @relation("Owner", fields: [ownerId], references: [id], onDelete: Cascade)
+  memberships  Membership[]
+  projects     Project[]
+  tasks        Task[]
+  messages     GroupMessage[]
+  invitations  Invitation[]
+  activityLogs ActivityLog[]
+
+  @@map("groups")
+}
+
+model Membership {
+  id       String   @id @default(cuid())
+  userId   String
+  groupId  String
+  role     String   @default("MEMBER")
+  nickname String?
+  joinedAt DateTime @default(now())
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group    Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@map("memberships")
+}
+
+model Task {
+  id                String             @id @default(cuid())
+  title             String
+  description       String?
+  priority          String             @default("MEDIUM")
+  status            String             @default("TODO")
+  dueDate           DateTime?
+  issueTypeId       String?
+  parentId          String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  createdById       String
+  groupId           String?
+  projectId         String?
+  privacy           String             @default("PUBLIC")
+  type              String?
+  isArchived        Boolean            @default(false)
+  deletedAt         DateTime?
+  estimateMinutes   Int?
+  timeSpentMinutes  Int?               @default(0)
+  storyPoints       Int?
+  resolution        String?
+  createdBy         User               @relation("Creator", fields: [createdById], references: [id], onDelete: Cascade)
+  group             Group?             @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  project           Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  issueType         IssueType?         @relation(fields: [issueTypeId], references: [id], onDelete: SetNull)
+  parent            Task?              @relation("TaskHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  subtasks          Task[]             @relation("TaskHierarchy")
+  assignments       TaskAssignment[]
+  comments          Comment[]
+  activityLogs      ActivityLog[]
+  attachments       Attachment[]
+  labels            TaskLabel[]
+  timeEntries       TimeEntry[]
+  customFieldValues CustomFieldValue[]
+
+  @@map("tasks")
+}
+
+model TaskAssignment {
+  id         String   @id @default(cuid())
+  taskId     String
+  userId     String
+  assignedAt DateTime @default(now())
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@map("task_assignments")
+}
+
+model TaskLabel {
+  id          String   @id @default(cuid())
+  name        String
+  color       String?
+  taskId      String
+  createdById String
+  createdAt   DateTime @default(now())
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@map("task_labels")
+}
+
+model TimeEntry {
+  id          String   @id @default(cuid())
+  taskId      String
+  userId      String
+  minutes     Int
+  description String?
+  startedAt   DateTime
+  createdAt   DateTime @default(now())
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("time_entries")
+}
+
+model CustomFieldValue {
+  id            String      @id @default(cuid())
+  customFieldId String
+  taskId        String
+  value         String
+  customField   CustomField @relation("CustomFieldValues", fields: [customFieldId], references: [id], onDelete: Cascade)
+  task          Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([customFieldId, taskId])
+  @@map("custom_field_values")
+}
+
+model AutomationRule {
+  id         String   @id @default(cuid())
+  projectId  String
+  name       String
+  trigger    String
+  conditions String?
+  actions    String
+  enabled    Boolean  @default(true)
+  project    Project  @relation("AutomationRules", fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@map("automation_rules")
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  taskId    String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+}
+
+model Project {
+  id              String              @id @default(cuid())
+  name            String
+  key             String              @unique
+  icon            String?
+  description     String?
+  color           String?
+  visibility      String              @default("PUBLIC")
+  isArchived      Boolean             @default(false)
+  favorite        Boolean             @default(false)
+  settings        String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  workspaceId     String
+  workspace       Group               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  memberships     ProjectMembership[]
+  tasks           Task[]
+  activityLogs    ActivityLog[]
+  components      Component[]
+  versions        Version[]
+  issueTypes      IssueType[]
+  customFields    CustomField[]
+  automationRules AutomationRule[]    @relation("AutomationRules")
+  chatRoom        ChatRoom?
+
+  @@map("projects")
+}
+
+model ProjectMembership {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String
+  role      String   @default("MEMBER")
+  joinedAt  DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@map("project_memberships")
+}
+
+model Component {
+  id        String   @id @default(cuid())
+  name      String
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@map("components")
+}
+
+model Version {
+  id        String   @id @default(cuid())
+  name      String
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@map("versions")
+}
+
+model IssueType {
+  id        String   @id @default(cuid())
+  name      String
+  key       String
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, key])
+  @@map("issue_types")
+}
+
+model CustomField {
+  id        String             @id @default(cuid())
+  name      String
+  type      String
+  projectId String
+  project   Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime           @default(now())
+  values    CustomFieldValue[] @relation("CustomFieldValues")
+
+  @@map("custom_fields")
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  entity    String
+  action    String
+  details   String?
+  createdAt DateTime @default(now())
+  userId    String
+  taskId    String?
+  groupId   String?
+  projectId String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task      Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  group     Group?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@map("activity_logs")
+}
+
+model Attachment {
+  id         String   @id @default(cuid())
+  filename   String
+  path       String
+  mimeType   String
+  size       Int
+  uploadedAt DateTime @default(now())
+  taskId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
+}
+
+model ChatRoom {
+  id        String    @id @default(cuid())
+  projectId String    @unique
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@map("chat_rooms")
+}
+
+model Message {
+  id            String             @id @default(cuid())
+  chatRoomId    String
+  senderId      String
+  content       String?
+  imageUrl      String?
+  fileUrl       String?
+  fileName      String?
+  fileType      String?
+  fileSize      Int?
+  replyToId     String?
+  editedAt      DateTime?
+  deletedAt     DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  chatRoom      ChatRoom           @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  sender        User               @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo       Message?           @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies       Message[]          @relation("MessageReplies")
+  reactions     MessageReaction[]
+  reads         MessageRead[]
+
+  @@map("messages")
+}
+
+model MessageRead {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  readAt    DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation("MessageReader", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@map("message_reads")
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation("MessageReactor", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@map("message_reactions")
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String
+  title      String
+  message    String
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  metadata   String?
+  projectId  String?
+  chatRoomId String?
+  messageId  String?
+  actorId    String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model GroupMessage {
+  id           String         @id @default(cuid())
+  content      String
+  image        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  userId       String
+  groupId      String
+  replyToId    String?
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group        Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  replyTo      GroupMessage?  @relation("ReplyTo", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies      GroupMessage[] @relation("ReplyTo")
+  readReceipts ReadReceipt[]
+
+  @@map("group_messages")
+}
+
+model ReadReceipt {
+  id        String       @id @default(cuid())
+  messageId String
+  userId    String
+  readAt    DateTime     @default(now())
+  message   GroupMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@map("read_receipts")
+}
+
+model Invitation {
+  id        String   @id @default(cuid())
+  groupId   String
+  email     String
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("invitations")
+}
