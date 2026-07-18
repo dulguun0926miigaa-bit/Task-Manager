@@ -22,6 +22,7 @@ app.use(
   cors({
     origin: (origin, callback) => {
       const allowedOrigins = [
+        // Local development
         'http://localhost:5173',
         'http://localhost:5174',
         'http://localhost:5175',
@@ -29,10 +30,16 @@ app.use(
         'http://localhost:5177',
         'http://localhost:3000',
         'http://localhost:3001',
+
+        // Vercel Production
+        'https://task-manager-git-main-duk-ochir.vercel.app',
+        'https://task-manager-4ackvtpa2-duk-ochir.vercel.app',
       ];
+
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
+        console.log('Blocked by CORS:', origin);
         callback(new Error('Not allowed by CORS'));
       }
     },
