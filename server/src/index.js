@@ -22,6 +22,21 @@ const ensureChatRoomsTypeColumn = async () => {
     } else {
       console.log('[DB FIX] `type` column already exists on chat_rooms');
     }
+    
+    // Ensure workspaceId column exists (nullable)
+    const workspaceCol = await prisma.$queryRaw`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'chat_rooms' AND column_name = 'workspaceId'
+    `;
+    if (!workspaceCol || workspaceCol.length === 0) {
+      console.log('[DB FIX] `workspaceId` column missing on chat_rooms, adding...');
+      await prisma.$executeRawUnsafe(
+        'ALTER TABLE chat_rooms ADD COLUMN IF NOT EXISTS "workspaceId" varchar NULL'
+      );
+      console.log('[DB FIX] `workspaceId` column added successfully');
+    } else {
+      console.log('[DB FIX] `workspaceId` column already exists on chat_rooms');
+    }
   } catch (err) {
     console.error('[DB FIX] error ensuring chat_rooms.type column:', err?.message || err);
   }
