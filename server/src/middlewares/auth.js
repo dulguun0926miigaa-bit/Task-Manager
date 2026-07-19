@@ -1,23 +1,53 @@
-import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
-import { env } from '../config/env.js';
+import { signAccessToken, verifyAccessToken, verifyRefreshToken } from '../utils/jwt.js';
 
 export const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : req.cookies?.accessToken;
+    let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : req.cookies?.accessToken;
+
     if (!token) {
       return res.status(401).json({ message: 'Authentication required' });
     }
 
-    const payload = jwt.verify(token, env.jwtSecret);
-    const user = await prisma.user.findUnique({ where: { id: payload.id } });
-    if (!user) {
-      return res.status(401).json({ message: 'User not found' });
-    }
+    try {
+      const payload = verifyAccessToken(token);
+      const user = await prisma.user.findUnique({ where: { id: payload.id } });
+      if (!user) {
+        return res.status(401).json({ message: 'User not found' });
+      }
 
-    req.user = user;
-    next();
+      req.user = user;
+      return next();
+    } catch (accessError) {
+      const refreshToken = req.cookies?.refreshToken;
+      if (!refreshToken) {
+        return res.status(401).json({ message: 'Invalid token' });
+      }
+
+      try {
+        const payload = verifyRefreshToken(refreshToken);
+        const user = await prisma.user.findUnique({ where: { id: payload.id } });
+        if (!user || user.refreshToken !== refreshToken) {
+          return res.status(401).json({ message: 'Invalid token' });
+        }
+
+        const newAccessToken = signAccessToken({ id: user.id, email: user.email });
+        res.cookie('accessToken', newAccessToken, {
+          httpOnly: true,
+          secure: false,
+          sameSite: 'lax',
+          maxAge: 15 * 60 * 1000,
+        });
+
+        req.user = user;
+        req.newAccessToken = newAccessToken;
+        res.setHeader('x-access-token', newAccessToken);
+        return next();
+      } catch (refreshError) {
+        return res.status(401).json({ message: 'Invalid token' });
+      }
+    }
   } catch (error) {
     return res.status(401).json({ message: 'Invalid token' });
   }

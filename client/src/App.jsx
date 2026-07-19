@@ -43,6 +43,61 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+let isRefreshing = false;
+let refreshQueue = [];
+
+const refreshAccessToken = async () => {
+  if (isRefreshing) {
+    return new Promise((resolve) => {
+      refreshQueue.push(resolve);
+    });
+  }
+
+  isRefreshing = true;
+  try {
+    const refreshRes = await api.post('/auth/refresh');
+    const token = refreshRes.data.accessToken;
+    setStoredToken(token, localStorage.getItem('rememberMe') === 'true');
+    api.defaults.headers.common.Authorization = `Bearer ${token}`;
+    refreshQueue.forEach((resolve) => resolve(token));
+    refreshQueue = [];
+    return token;
+  } catch (error) {
+    clearStoredToken();
+    delete api.defaults.headers.common.Authorization;
+    refreshQueue.forEach((resolve) => resolve(null));
+    refreshQueue = [];
+    throw error;
+  } finally {
+    isRefreshing = false;
+  }
+};
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config || {};
+    const shouldRetry = error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/refresh') && !originalRequest.url?.includes('/auth/login');
+
+    if (!shouldRetry) {
+      return Promise.reject(error);
+    }
+
+    originalRequest._retry = true;
+    try {
+      const token = await refreshAccessToken();
+      if (!token) {
+        return Promise.reject(error);
+      }
+
+      originalRequest.headers.Authorization = `Bearer ${token}`;
+      return api(originalRequest);
+    } catch (refreshError) {
+      return Promise.reject(refreshError);
+    }
+  }
+);
+
 const getAuthErrorMessage = (error) => {
   if (!error) return 'Something went wrong. Please try again.';
 
