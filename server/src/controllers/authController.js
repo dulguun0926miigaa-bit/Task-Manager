@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt.js';
 import { normalizeEmail } from '../utils/authUtils.js';
 import { getCookieOptions } from '../utils/cookies.js';
+import { getRefreshTokenFromRequest } from '../utils/authRequest.js';
 
 export const register = async (req, res, next) => {
   try {
@@ -60,6 +61,7 @@ export const login = async (req, res, next) => {
 
     res.json({
       accessToken,
+      refreshToken,
       user: { id: user.id, username: user.username, email: user.email, avatar: user.avatar, bio: user.bio },
       rememberMe: Boolean(rememberMe),
     });
@@ -71,8 +73,8 @@ export const login = async (req, res, next) => {
 
 export const refresh = async (req, res, next) => {
   try {
-    const refreshToken = req.cookies?.refreshToken;
-    console.log('[AUTH] Refresh attempt:', { hasToken: Boolean(refreshToken) });
+    const refreshToken = getRefreshTokenFromRequest(req);
+    console.log('[AUTH] Refresh attempt:', { hasToken: Boolean(refreshToken), source: refreshToken ? 'request' : 'none' });
     
     if (!refreshToken) {
       console.log('[AUTH] No refresh token in request');
@@ -93,7 +95,7 @@ export const refresh = async (req, res, next) => {
       maxAge: 15 * 60 * 1000,
     });
 
-    res.json({ accessToken, user: { id: user.id, username: user.username, email: user.email, avatar: user.avatar, bio: user.bio } });
+    res.json({ accessToken, refreshToken, user: { id: user.id, username: user.username, email: user.email, avatar: user.avatar, bio: user.bio } });
   } catch (error) {
     console.error('[AUTH] Refresh error:', error?.message, error?.stack);
     return res.status(401).json({ message: 'Invalid token' });
@@ -102,7 +104,7 @@ export const refresh = async (req, res, next) => {
 
 export const logout = async (req, res, next) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
+    const refreshToken = getRefreshTokenFromRequest(req);
     if (refreshToken) {
       const payload = verifyRefreshToken(refreshToken);
       await prisma.user.updateMany({ where: { id: payload.id }, data: { refreshToken: null } });

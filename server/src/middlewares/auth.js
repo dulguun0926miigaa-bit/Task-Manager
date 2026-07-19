@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { signAccessToken, verifyAccessToken, verifyRefreshToken } from '../utils/jwt.js';
 import { getCookieOptions } from '../utils/cookies.js';
+import { getRefreshTokenFromRequest } from '../utils/authRequest.js';
 
 export const authenticate = async (req, res, next) => {
   try {
@@ -21,7 +22,7 @@ export const authenticate = async (req, res, next) => {
       req.user = user;
       return next();
     } catch (accessError) {
-      const refreshToken = req.cookies?.refreshToken;
+      const refreshToken = getRefreshTokenFromRequest(req);
       if (!refreshToken) {
         return res.status(401).json({ message: 'Invalid token' });
       }

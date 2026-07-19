@@ -25,9 +25,25 @@ const setStoredToken = (token, rememberMe = false) => {
     localStorage.setItem('rememberMe', 'false');
   }
 };
+const getStoredRefreshToken = () => {
+  const localToken = localStorage.getItem('refreshToken');
+  if (localToken) return localToken;
+  return sessionStorage.getItem('refreshToken') || '';
+};
+const setStoredRefreshToken = (token, rememberMe = false) => {
+  if (rememberMe) {
+    localStorage.setItem('refreshToken', token);
+    sessionStorage.removeItem('refreshToken');
+  } else {
+    sessionStorage.setItem('refreshToken', token);
+    localStorage.removeItem('refreshToken');
+  }
+};
 const clearStoredToken = () => {
   localStorage.removeItem('accessToken');
   sessionStorage.removeItem('accessToken');
+  localStorage.removeItem('refreshToken');
+  sessionStorage.removeItem('refreshToken');
   localStorage.removeItem('rememberMe');
 };
 const getSocketUrl = () => {
@@ -55,9 +71,11 @@ const refreshAccessToken = async () => {
 
   isRefreshing = true;
   try {
-    const refreshRes = await api.post('/auth/refresh');
+    const refreshRes = await api.post('/auth/refresh', { refreshToken: getStoredRefreshToken() });
     const token = refreshRes.data.accessToken;
+    const refreshToken = refreshRes.data.refreshToken || getStoredRefreshToken();
     setStoredToken(token, localStorage.getItem('rememberMe') === 'true');
+    setStoredRefreshToken(refreshToken, localStorage.getItem('rememberMe') === 'true');
     api.defaults.headers.common.Authorization = `Bearer ${token}`;
     refreshQueue.forEach((resolve) => resolve(token));
     refreshQueue = [];
@@ -141,7 +159,11 @@ const AuthPage = ({ onAuthenticated }) => {
     mutationFn: (payload) => api.post('/auth/login', payload),
     onSuccess: (res) => {
       const token = res.data.accessToken;
+      const refreshToken = res.data.refreshToken;
       setStoredToken(token, rememberMe);
+      if (refreshToken) {
+        setStoredRefreshToken(refreshToken, rememberMe);
+      }
       api.defaults.headers.common.Authorization = `Bearer ${token}`;
       onAuthenticated(res.data.user);
       toast.success('Signed in successfully');
@@ -1276,8 +1298,10 @@ export default function App() {
     }
 
     try {
-      const refreshRes = await api.post('/auth/refresh');
+      const refreshRes = await api.post('/auth/refresh', { refreshToken: getStoredRefreshToken() });
+      const refreshToken = refreshRes.data.refreshToken || getStoredRefreshToken();
       setStoredToken(refreshRes.data.accessToken, localStorage.getItem('rememberMe') === 'true');
+      setStoredRefreshToken(refreshToken, localStorage.getItem('rememberMe') === 'true');
       api.defaults.headers.common.Authorization = `Bearer ${refreshRes.data.accessToken}`;
       setUser(refreshRes.data.user);
     } catch {
