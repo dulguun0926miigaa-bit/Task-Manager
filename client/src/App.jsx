@@ -297,6 +297,11 @@ const DashboardPage = ({ user, onLogout }) => {
     queryFn: () => api.get(`/users/search?q=${encodeURIComponent(searchTerm)}`).then((res) => res.data.users || []),
     enabled: Boolean(searchTerm),
   });
+  const { data: discoverPeople = [] } = useQuery({
+    queryKey: ['discoverPeople'],
+    queryFn: () => api.get('/users/discover').then((res) => res.data.users || []),
+    enabled: Boolean(user?.id),
+  });
   const { data: projectMembers = [] } = useQuery({
     queryKey: ['projectMembers', selectedProjectId, projectMemberSearch],
     queryFn: () => api.get(`/projects/${selectedProjectId}/members?q=${encodeURIComponent(projectMemberSearch)}`).then((res) => res.data.memberships || []),
@@ -488,6 +493,7 @@ const DashboardPage = ({ user, onLogout }) => {
     mutationFn: (receiverId) => api.post('/friends/requests', { receiverId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['friendRequests'] });
+      queryClient.invalidateQueries({ queryKey: ['discoverPeople'] });
       toast.success('Friend request sent');
     },
     onError: (error) => toast.error(error?.response?.data?.message || 'Unable to send request'),
@@ -498,6 +504,7 @@ const DashboardPage = ({ user, onLogout }) => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['friendRequests'] });
       queryClient.invalidateQueries({ queryKey: ['friends'] });
+      queryClient.invalidateQueries({ queryKey: ['discoverPeople'] });
       toast.success('Request updated');
     },
     onError: () => toast.error('Unable to update request'),
@@ -973,6 +980,36 @@ const DashboardPage = ({ user, onLogout }) => {
               ) : (
                 <p className="text-sm text-slate-400">Select a room to start chatting.</p>
               )}
+            </section>
+
+            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Discover People</h2>
+              </div>
+              <div className="grid gap-3">
+                {discoverPeople.map((person) => (
+                  <div key={person.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-cyan-500/20 text-sm font-semibold text-cyan-300">
+                          {person.avatar ? <img src={person.avatar} alt={person.username} className="h-11 w-11 rounded-full object-cover" /> : (person.username || 'U').slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-medium">{person.fullName || person.username}</p>
+                          <p className="text-sm text-slate-400">@{person.username}</p>
+                          <p className="text-sm text-slate-400">{person.email}</p>
+                          {person.mutualWorkspaces?.length > 0 && <p className="text-xs text-cyan-300">Mutual workspaces: {person.mutualWorkspaces.map((workspace) => workspace.name).join(', ')}</p>}
+                          {person.mutualProjects?.length > 0 && <p className="text-xs text-cyan-300">Mutual projects: {person.mutualProjects.map((project) => project.name).join(', ')}</p>}
+                          <p className="text-xs text-slate-500">Status: {person.status}</p>
+                        </div>
+                      </div>
+                      <button className="rounded-xl bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950" onClick={() => sendRequestMutation.mutate(person.id)}>
+                        Send Request
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </section>
 
             <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
