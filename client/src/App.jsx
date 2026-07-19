@@ -241,6 +241,8 @@ const DashboardPage = ({ user, onLogout }) => {
   const [roomDraft, setRoomDraft] = useState('');
   const [roomTypingUsers, setRoomTypingUsers] = useState([]);
   const socketRef = useRef(null);
+  const previousProjectRoomRef = useRef(null);
+  const previousChatRoomRef = useRef(null);
   const [workspaceSettingsForm, setWorkspaceSettingsForm] = useState({ name: '', description: '', privacy: 'PUBLIC', image: '', settings: { theme: 'default' } });
   const [taskForm, setTaskForm] = useState({ title: '', description: '', priority: 'MEDIUM', status: 'TODO', dueDate: '', groupId: '', projectId: '', issueTypeId: '', parentId: '', privacy: 'PUBLIC', type: '', assignedUserIds: [] });
   const navigate = useNavigate();
@@ -376,6 +378,25 @@ const DashboardPage = ({ user, onLogout }) => {
     socket.on('user:offline', () => queryClient.invalidateQueries({ queryKey: ['projectMembers', selectedProjectId] }));
     return () => socket.disconnect();
   }, [queryClient, selectedProjectId, user.id]);
+
+  useEffect(() => {
+    if (!socketRef.current || !selectedProjectId || !user?.id) return;
+    const roomId = `project:${selectedProjectId}`;
+    if (previousProjectRoomRef.current && previousProjectRoomRef.current !== roomId) {
+      socketRef.current.emit('leave-room', previousProjectRoomRef.current);
+    }
+    socketRef.current.emit('join-room', roomId);
+    previousProjectRoomRef.current = roomId;
+  }, [selectedProjectId, user?.id]);
+
+  useEffect(() => {
+    if (!socketRef.current || !activeChatRoomId) return;
+    if (previousChatRoomRef.current && previousChatRoomRef.current !== activeChatRoomId) {
+      socketRef.current.emit('leave-room', previousChatRoomRef.current);
+    }
+    socketRef.current.emit('join-room', activeChatRoomId);
+    previousChatRoomRef.current = activeChatRoomId;
+  }, [activeChatRoomId, user?.id]);
 
   const resetGroupForm = () => {
     setGroupForm({ name: '', description: '', privacy: 'PUBLIC', image: '' });
@@ -628,9 +649,12 @@ const DashboardPage = ({ user, onLogout }) => {
 
   const sendRoomMessageMutation = useMutation({
     mutationFn: ({ roomId, content }) => api.post(`/chatrooms/rooms/${roomId}/messages`, { content }),
-    onSuccess: (_res, { roomId }) => {
+    onSuccess: (res, { roomId }) => {
       setRoomDraft('');
-      socketRef.current?.emit('chat:message', { roomId, message: { id: Date.now().toString() } });
+      if (res?.data?.message) {
+        setRoomMessages((current) => [...current, res.data.message]);
+      }
+      socketRef.current?.emit('join-room', roomId);
     },
   });
 
