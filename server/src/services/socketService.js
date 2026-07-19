@@ -54,6 +54,17 @@ export const initSocket = (server) => {
     socket.on('project:message', ({ roomId, message }) => io.to(roomId).emit('project:message', message));
     socket.on('project:typing', ({ roomId, payload }) => io.to(roomId).emit('project:typing', payload));
     socket.on('project:read', ({ roomId, payload }) => io.to(roomId).emit('project:read', payload));
+    socket.on('chat:join', ({ roomId }) => { if (roomId) socket.join(roomId); });
+    socket.on('chat:leave', ({ roomId }) => { if (roomId) socket.leave(roomId); });
+    socket.on('chat:message', ({ roomId, message }) => io.to(roomId).emit('chat:message', message));
+    socket.on('chat:update', ({ roomId, message }) => io.to(roomId).emit('chat:update', message));
+    socket.on('chat:delete', ({ roomId, id }) => io.to(roomId).emit('chat:delete', { id }));
+    socket.on('chat:typing:start', ({ roomId, payload }) => io.to(roomId).emit('chat:typing:start', payload));
+    socket.on('chat:typing:stop', ({ roomId, payload }) => io.to(roomId).emit('chat:typing:stop', payload));
+    socket.on('chat:reaction', ({ roomId, payload }) => io.to(roomId).emit('chat:reaction', payload));
+    socket.on('chat:read', ({ roomId, payload }) => io.to(roomId).emit('chat:read', payload));
+    socket.on('workspace:joined', ({ roomId, payload }) => io.to(roomId).emit('workspace:joined', payload));
+    socket.on('workspace:left', ({ roomId, payload }) => io.to(roomId).emit('workspace:left', payload));
   });
 };
 

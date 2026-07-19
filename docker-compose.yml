@@ -1,15 +1,16 @@
 version: '3.9'
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: taskflow-mysql
+  postgres:
+    image: postgres:16-alpine
+    container_name: taskflow-postgres
     environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: taskflow
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: taskflow
     ports:
-      - '3306:3306'
+      - '5432:5432'
     volumes:
-      - mysql_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
 
   server:
     build:
@@ -17,11 +18,11 @@ services:
       dockerfile: Dockerfile
     container_name: taskflow-server
     depends_on:
-      - mysql
+      - postgres
     environment:
       PORT: 5000
       NODE_ENV: development
-      DATABASE_URL: mysql://root:password@mysql:3306/taskflow
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/taskflow?schema=public
       JWT_SECRET: taskflow-super-secret
       JWT_REFRESH_SECRET: taskflow-refresh-secret
       CLIENT_URL: http://localhost:5173
@@ -39,4 +40,4 @@ services:
       - '5173:5173'
 
 volumes:
-  mysql_data:
+  postgres_data:

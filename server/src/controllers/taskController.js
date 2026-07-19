@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { emitToUser } from '../services/socketService.js';
+import { createProjectNotification } from '../services/projectService.js';
 
 const getUserWorkspaceIds = async (userId) => {
   const memberships = await prisma.membership.findMany({ where: { userId }, select: { groupId: true } });
@@ -206,16 +207,16 @@ export const createTask = async (req, res, next) => {
       });
 
       for (const userId of validAssignedUserIds) {
-        await prisma.notification.create({
-          data: {
-            userId,
-            type: 'TASK_ASSIGNED',
-            title: 'New task assigned',
-            message: `You were assigned to ${task.title}`,
-          },
+        await createProjectNotification({
+          userId,
+          type: 'task:assigned',
+          title: 'New task assigned',
+          message: `You were assigned to ${task.title}`,
+          projectId: normalizedProjectId || undefined,
+          actorId: req.user.id,
+          metadata: { taskId: task.id },
         });
         emitToUser(userId, 'task-assigned', { task });
-        emitToUser(userId, 'notification', { title: 'New task assigned', message: `You were assigned to ${task.title}` });
       }
     }
 
@@ -543,6 +544,20 @@ export const updateTask = async (req, res, next) => {
         customFieldValues: { include: { customField: true } },
       },
     });
+
+    const taskAssignments = await prisma.taskAssignment.findMany({ where: { taskId }, include: { user: { select: { id: true } } } });
+    for (const assignment of taskAssignments) {
+      if (assignment.user.id === req.user.id) continue;
+      await createProjectNotification({
+        userId: assignment.user.id,
+        type: 'task:updated',
+        title: 'Task updated',
+        message: `The task ${task?.title || 'updated'} changed`,
+        projectId: payload.projectId || existingTask.projectId || undefined,
+        actorId: req.user.id,
+        metadata: { taskId: taskId },
+      });
+    }
 
     emitToUser(req.user.id, 'task-updated', { task });
     res.json({ task });

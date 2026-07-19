@@ -7,9 +7,41 @@ import toast from 'react-hot-toast';
 import { io } from 'socket.io-client';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-const api = axios.create({ baseURL: API_BASE_URL });
+const api = axios.create({ baseURL: API_BASE_URL, withCredentials: true });
 
-const getStoredToken = () => localStorage.getItem('accessToken') || '';
+const getStoredToken = () => {
+  const localToken = localStorage.getItem('accessToken');
+  if (localToken) return localToken;
+  return sessionStorage.getItem('accessToken') || '';
+};
+const setStoredToken = (token, rememberMe = false) => {
+  if (rememberMe) {
+    localStorage.setItem('accessToken', token);
+    sessionStorage.removeItem('accessToken');
+    localStorage.setItem('rememberMe', 'true');
+  } else {
+    sessionStorage.setItem('accessToken', token);
+    localStorage.removeItem('accessToken');
+    localStorage.setItem('rememberMe', 'false');
+  }
+};
+const clearStoredToken = () => {
+  localStorage.removeItem('accessToken');
+  sessionStorage.removeItem('accessToken');
+  localStorage.removeItem('rememberMe');
+};
+const getSocketUrl = () => {
+  const configured = import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+  return configured.replace(/\/api$/, '').replace(/\/$/, '');
+};
+
+api.interceptors.request.use((config) => {
+  const token = getStoredToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 const getAuthErrorMessage = (error) => {
   if (!error) return 'Something went wrong. Please try again.';
@@ -20,6 +52,9 @@ const getAuthErrorMessage = (error) => {
     }
 
     if (error.response?.status === 401) {
+      if (error.response?.data?.message === 'Invalid token' || error.response?.data?.message === 'Authentication required') {
+        return 'Your session expired. Please sign in again.';
+      }
       return 'Invalid email or password.';
     }
 
@@ -38,17 +73,24 @@ const getAuthErrorMessage = (error) => {
 const AuthPage = ({ onAuthenticated }) => {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ username: '', email: '', password: '' });
+  const [rememberMe, setRememberMe] = useState(localStorage.getItem('rememberMe') === 'true');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (getStoredToken()) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [navigate]);
 
   const loginMutation = useMutation({
     mutationFn: (payload) => api.post('/auth/login', payload),
     onSuccess: (res) => {
       const token = res.data.accessToken;
-      localStorage.setItem('accessToken', token);
+      setStoredToken(token, rememberMe);
       api.defaults.headers.common.Authorization = `Bearer ${token}`;
       onAuthenticated(res.data.user);
       toast.success('Signed in successfully');
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     },
     onError: (error) => toast.error(getAuthErrorMessage(error)),
   });
@@ -65,7 +107,7 @@ const AuthPage = ({ onAuthenticated }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (mode === 'login') {
-      loginMutation.mutate({ email: form.email, password: form.password });
+      loginMutation.mutate({ email: form.email, password: form.password, rememberMe });
     } else {
       registerMutation.mutate({ username: form.username, email: form.email, password: form.password });
     }
@@ -96,6 +138,12 @@ const AuthPage = ({ onAuthenticated }) => {
             )}
             <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3" placeholder="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3" placeholder="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+            {mode === 'login' && (
+              <label className="flex items-center gap-2 text-sm text-slate-400">
+                <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
+                Remember me and stay signed in
+              </label>
+            )}
             <button className="w-full rounded-xl bg-cyan-500 px-4 py-3 font-semibold text-slate-950" type="submit" disabled={loginMutation.isPending || registerMutation.isPending}>
               {mode === 'login' ? 'Sign in' : 'Create account'}
             </button>
@@ -116,7 +164,7 @@ const DashboardPage = ({ user, onLogout }) => {
   const [showProjectMembersModal, setShowProjectMembersModal] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(null);
-  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [groupForm, setGroupForm] = useState({ name: '', description: '', privacy: 'PUBLIC', image: '' });
@@ -131,6 +179,12 @@ const DashboardPage = ({ user, onLogout }) => {
   const [chatTyping, setChatTyping] = useState([]);
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [replyMessageId, setReplyMessageId] = useState(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [chatRooms, setChatRooms] = useState([]);
+  const [activeChatRoomId, setActiveChatRoomId] = useState('');
+  const [roomMessages, setRoomMessages] = useState([]);
+  const [roomDraft, setRoomDraft] = useState('');
+  const [roomTypingUsers, setRoomTypingUsers] = useState([]);
   const socketRef = useRef(null);
   const [workspaceSettingsForm, setWorkspaceSettingsForm] = useState({ name: '', description: '', privacy: 'PUBLIC', image: '', settings: { theme: 'default' } });
   const [taskForm, setTaskForm] = useState({ title: '', description: '', priority: 'MEDIUM', status: 'TODO', dueDate: '', groupId: '', projectId: '', issueTypeId: '', parentId: '', privacy: 'PUBLIC', type: '', assignedUserIds: [] });
@@ -155,7 +209,10 @@ const DashboardPage = ({ user, onLogout }) => {
   });
   const { data: friends = [] } = useQuery({ queryKey: ['friends'], queryFn: () => api.get('/friends').then((res) => res.data.friends || []) });
   const { data: requests = [] } = useQuery({ queryKey: ['friendRequests'], queryFn: () => api.get('/friends/requests').then((res) => res.data.requests || []) });
-  const { data: notifications = [] } = useQuery({ queryKey: ['notifications'], queryFn: () => api.get('/notifications').then((res) => res.data.notifications || []) });
+  const { data: notificationsResponse } = useQuery({ queryKey: ['notifications'], queryFn: () => api.get('/notifications').then((res) => ({ notifications: res.data.notifications || [], unreadCount: res.data.unreadCount || 0 })), enabled: Boolean(user?.id) });
+  const { data: workspaceChatRooms = [] } = useQuery({ queryKey: ['chatRooms'], queryFn: () => api.get('/chatrooms/rooms').then((res) => res.data.rooms || []), enabled: Boolean(user?.id) });
+  const notifications = notificationsResponse?.notifications || [];
+  const unreadNotificationCount = notificationsResponse?.unreadCount || notifications.filter((item) => !item.isRead).length;
   const { data: users = [] } = useQuery({
     queryKey: ['users', searchTerm],
     queryFn: () => api.get(`/users/search?q=${encodeURIComponent(searchTerm)}`).then((res) => res.data.users || []),
@@ -186,22 +243,34 @@ const DashboardPage = ({ user, onLogout }) => {
       setSelectedProjectId(projects[0].id);
     }
     if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) {
-      setSelectedProjectId(projects[0]?.id || '');
+      setSelectedProjectId(projects[0]?.id || null);
     }
   }, [projects, selectedProjectId]);
 
   useEffect(() => {
-    setChatMessages(chatHistory);
-  }, [chatHistory]);
+    const hasSameMessages = chatMessages.length === chatHistory.length && chatMessages.every((message, index) => message.id === chatHistory[index]?.id);
+    if (!hasSameMessages) {
+      setChatMessages(chatHistory);
+    }
+  }, [chatHistory, chatMessages]);
 
   useEffect(() => {
-    const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+    const socketUrl = getSocketUrl();
     const socket = io(socketUrl, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
     socket.emit('authenticate', { userId: user.id });
     socket.emit('join-room', `user:${user.id}`);
-    socket.on('notification', (payload) => {
+    socket.on('notification:new', (payload) => {
       toast.success(payload.title || 'New notification');
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    });
+    socket.on('notification:update', () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    });
+    socket.on('notification:delete', () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    });
+    socket.on('notification:read', () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     });
     socket.on('friend-request', () => {
@@ -232,6 +301,21 @@ const DashboardPage = ({ user, onLogout }) => {
     socket.on('project:typing', (payload) => {
       if (payload.userId === user.id) return;
       setChatTyping((current) => current.includes(payload.userId) ? current : [...current, payload.userId]);
+    });
+    socket.on('chat:message', (message) => {
+      setRoomMessages((current) => [...current, message]);
+    });
+    socket.on('chat:update', (message) => {
+      setRoomMessages((current) => current.map((item) => item.id === message.id ? message : item));
+    });
+    socket.on('chat:delete', ({ id }) => {
+      setRoomMessages((current) => current.filter((item) => item.id !== id));
+    });
+    socket.on('chat:typing:start', (payload) => {
+      setRoomTypingUsers((current) => current.includes(payload.userId) ? current : [...current, payload.userId]);
+    });
+    socket.on('chat:typing:stop', (payload) => {
+      setRoomTypingUsers((current) => current.filter((userId) => userId !== payload.userId));
     });
     socket.on('user:online', () => queryClient.invalidateQueries({ queryKey: ['projectMembers', selectedProjectId] }));
     socket.on('user:offline', () => queryClient.invalidateQueries({ queryKey: ['projectMembers', selectedProjectId] }));
@@ -326,6 +410,20 @@ const DashboardPage = ({ user, onLogout }) => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       toast.success('Notifications marked read');
+    },
+  });
+
+  const markSingleNotificationReadMutation = useMutation({
+    mutationFn: (id) => api.post(`/notifications/${id}/read`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
+
+  const deleteNotificationMutation = useMutation({
+    mutationFn: (id) => api.delete(`/notifications/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
 
@@ -455,6 +553,36 @@ const DashboardPage = ({ user, onLogout }) => {
     },
   });
 
+  const joinRoomMutation = useMutation({
+    mutationFn: (roomId) => api.post(`/chatrooms/rooms/${roomId}/join`),
+    onSuccess: (_res, roomId) => {
+      setActiveChatRoomId(roomId);
+      api.get(`/chatrooms/rooms/${roomId}/messages`).then((res) => setRoomMessages(res.data.messages || [])).catch(() => setRoomMessages([]));
+    },
+  });
+
+  const createPrivateChatRoomMutation = useMutation({
+    mutationFn: (targetUserId) => api.post('/chatrooms/rooms/private', { targetUserId }),
+    onSuccess: (res) => {
+      const roomId = res.data.room.id;
+      setActiveChatRoomId(roomId);
+      queryClient.invalidateQueries({ queryKey: ['chatRooms'] });
+      joinRoomMutation.mutate(roomId);
+    },
+  });
+
+  const sendRoomMessageMutation = useMutation({
+    mutationFn: ({ roomId, content }) => api.post(`/chatrooms/rooms/${roomId}/messages`, { content }),
+    onSuccess: (_res, { roomId }) => {
+      setRoomDraft('');
+      socketRef.current?.emit('chat:message', { roomId, message: { id: Date.now().toString() } });
+    },
+  });
+
+  const typingRoomMutation = useMutation({
+    mutationFn: (roomId) => api.post(`/chatrooms/rooms/${roomId}/typing`),
+  });
+
   const deleteWorkspaceMutation = useMutation({
     mutationFn: () => api.delete(`/groups/${selectedWorkspaceId}`),
     onSuccess: () => {
@@ -468,10 +596,10 @@ const DashboardPage = ({ user, onLogout }) => {
   const logoutMutation = useMutation({
     mutationFn: () => api.post('/auth/logout'),
     onSuccess: () => {
-      localStorage.removeItem('accessToken');
+      clearStoredToken();
       delete api.defaults.headers.common.Authorization;
       onLogout();
-      navigate('/');
+      navigate('/', { replace: true });
     },
   });
 
@@ -513,6 +641,34 @@ const DashboardPage = ({ user, onLogout }) => {
               <h1 className="text-2xl font-semibold">Welcome back, {user.username}</h1>
             </div>
             <div className="flex gap-2">
+              <div className="relative">
+                <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2" onClick={() => setShowNotifications((value) => !value)}>Notifications {unreadNotificationCount > 0 ? `(${unreadNotificationCount})` : ''}</button>
+                {showNotifications && (
+                  <div className="absolute right-0 z-20 mt-2 w-80 rounded-2xl border border-slate-800 bg-slate-900 p-3 shadow-xl">
+                    <div className="mb-2 flex items-center justify-between">
+                      <h3 className="font-semibold">Notifications</h3>
+                      <button className="text-xs text-cyan-300" onClick={() => markReadMutation.mutate()}>Mark all read</button>
+                    </div>
+                    <div className="max-h-80 space-y-2 overflow-auto">
+                      {notifications.length === 0 && <p className="text-sm text-slate-400">No notifications yet.</p>}
+                      {notifications.map((item) => (
+                        <div key={item.id} className={`rounded-xl border p-2 text-sm ${item.isRead ? 'border-slate-800 bg-slate-950' : 'border-cyan-700 bg-cyan-950/30'}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-medium">{item.title}</p>
+                              <p className="text-slate-400">{item.message}</p>
+                            </div>
+                            <div className="flex gap-1">
+                              {!item.isRead && <button className="text-xs text-cyan-300" onClick={() => markSingleNotificationReadMutation.mutate(item.id)}>Read</button>}
+                              <button className="text-xs text-rose-300" onClick={() => deleteNotificationMutation.mutate(item.id)}>Delete</button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
               <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2" onClick={() => setShowGroupModal(true)}>New workspace</button>
               <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2" onClick={() => setShowProjectModal(true)}>New project</button>
               <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2" onClick={() => { resetTaskForm(); setShowTaskModal(true); }}>New task</button>
@@ -678,6 +834,48 @@ const DashboardPage = ({ user, onLogout }) => {
 
             <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
               <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Workspace chat</h2>
+                <div className="flex gap-2">
+                  {chatRooms.map((room) => (
+                    <button key={room.id} className={`rounded-xl border px-2 py-1 text-xs ${activeChatRoomId === room.id ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-slate-700 bg-slate-800'}`} onClick={() => joinRoomMutation.mutate(room.id)}>
+                      {room.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="mb-3 flex flex-wrap gap-2">
+                {friends.map((friend) => (
+                  <button key={friend.id} className="rounded-xl border border-slate-700 bg-slate-800 px-2 py-1 text-xs" onClick={() => createPrivateChatRoomMutation.mutate(friend.id)}>
+                    Private chat with {friend.username}
+                  </button>
+                ))}
+              </div>
+              {activeChatRoomId ? (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                  <div className="mb-3 space-y-2">
+                    {roomMessages.map((message) => (
+                      <div key={message.id} className="rounded-xl bg-slate-800 p-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">{message.sender?.username || 'Unknown'}</span>
+                          <span className="text-xs text-slate-400">{new Date(message.createdAt).toLocaleString()}</span>
+                        </div>
+                        <p className="mt-1 text-slate-300">{message.content || 'Shared attachment'}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {roomTypingUsers.length > 0 && <p className="text-xs text-cyan-300">Typing…</p>}
+                  <div className="mt-3 flex gap-2">
+                    <input className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Message" value={roomDraft} onChange={(e) => { setRoomDraft(e.target.value); typingRoomMutation.mutate(activeChatRoomId); }} />
+                    <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => sendRoomMessageMutation.mutate({ roomId: activeChatRoomId, content: roomDraft })}>Send</button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">Select a room to start chatting.</p>
+              )}
+            </section>
+
+            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Project chat</h2>
                 <span className="text-sm text-slate-400">{selectedProject?.name || 'Project'}</span>
               </div>
@@ -708,6 +906,10 @@ const DashboardPage = ({ user, onLogout }) => {
                   <div className="flex gap-2">
                     <input className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Type a message" value={chatDraft} onChange={(e) => { setChatDraft(e.target.value); socketRef.current?.emit('project:typing', { roomId: `project:${selectedProjectId}`, payload: { userId: user.id } }); }} />
                     <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => {
+                      if (!selectedProjectId) {
+                        toast.error('Select a project first');
+                        return;
+                      }
                       if (editingMessageId) {
                         editMessageMutation.mutate({ messageId: editingMessageId, content: chatDraft });
                       } else {
@@ -963,20 +1165,30 @@ const DashboardPage = ({ user, onLogout }) => {
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(Boolean(getStoredToken()));
+  const [loading, setLoading] = useState(true);
 
   const initialize = async () => {
     const token = getStoredToken();
-    if (!token) {
-      setLoading(false);
-      return;
+
+    if (token) {
+      api.defaults.headers.common.Authorization = `Bearer ${token}`;
+      try {
+        const res = await api.get('/users/me');
+        setUser(res.data.user);
+        setLoading(false);
+        return;
+      } catch {
+        // fall through to refresh cookie attempt
+      }
     }
-    api.defaults.headers.common.Authorization = `Bearer ${token}`;
+
     try {
-      const res = await api.get('/users/me');
-      setUser(res.data.user);
+      const refreshRes = await api.post('/auth/refresh');
+      setStoredToken(refreshRes.data.accessToken, localStorage.getItem('rememberMe') === 'true');
+      api.defaults.headers.common.Authorization = `Bearer ${refreshRes.data.accessToken}`;
+      setUser(refreshRes.data.user);
     } catch {
-      localStorage.removeItem('accessToken');
+      clearStoredToken();
       delete api.defaults.headers.common.Authorization;
     } finally {
       setLoading(false);
