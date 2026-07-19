@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { signAccessToken, verifyAccessToken, verifyRefreshToken } from '../utils/jwt.js';
+import { getCookieOptions } from '../utils/cookies.js';
 
 export const authenticate = async (req, res, next) => {
   try {
@@ -34,9 +35,7 @@ export const authenticate = async (req, res, next) => {
 
         const newAccessToken = signAccessToken({ id: user.id, email: user.email });
         res.cookie('accessToken', newAccessToken, {
-          httpOnly: true,
-          secure: false,
-          sameSite: 'lax',
+          ...getCookieOptions(),
           maxAge: 15 * 60 * 1000,
         });
 

@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt.js';
 import { normalizeEmail } from '../utils/authUtils.js';
+import { getCookieOptions } from '../utils/cookies.js';
 
 export const register = async (req, res, next) => {
   try {
@@ -49,15 +50,11 @@ export const login = async (req, res, next) => {
     await prisma.user.update({ where: { id: user.id }, data: { refreshToken } });
 
     res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      ...getCookieOptions(),
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
     res.cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      ...getCookieOptions(),
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -92,9 +89,7 @@ export const refresh = async (req, res, next) => {
     console.log('[AUTH] Refresh successful for userId:', payload.id);
     const accessToken = signAccessToken({ id: user.id, email: user.email });
     res.cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      ...getCookieOptions(),
       maxAge: 15 * 60 * 1000,
     });
 
@@ -112,8 +107,8 @@ export const logout = async (req, res, next) => {
       const payload = verifyRefreshToken(refreshToken);
       await prisma.user.updateMany({ where: { id: payload.id }, data: { refreshToken: null } });
     }
-    res.clearCookie('refreshToken');
-    res.clearCookie('accessToken');
+    res.clearCookie('refreshToken', getCookieOptions());
+    res.clearCookie('accessToken', getCookieOptions());
     res.json({ message: 'Logged out' });
   } catch (error) {
     next(error);
