@@ -988,28 +988,34 @@ const DashboardPage = ({ user, onLogout }) => {
                 <h2 className="text-xl font-semibold">Discover People</h2>
               </div>
               <div className="grid gap-3">
-                {discoverPeople.map((person) => (
-                  <div key={person.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-cyan-500/20 text-sm font-semibold text-cyan-300">
-                          {person.avatar ? <img src={person.avatar} alt={person.username} className="h-11 w-11 rounded-full object-cover" /> : (person.username || 'U').slice(0, 2).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="font-medium">{person.fullName || person.username}</p>
-                          <p className="text-sm text-slate-400">@{person.username}</p>
-                          <p className="text-sm text-slate-400">{person.email}</p>
-                          {person.mutualWorkspaces?.length > 0 && <p className="text-xs text-cyan-300">Mutual workspaces: {person.mutualWorkspaces.map((workspace) => workspace.name).join(', ')}</p>}
-                          {person.mutualProjects?.length > 0 && <p className="text-xs text-cyan-300">Mutual projects: {person.mutualProjects.map((project) => project.name).join(', ')}</p>}
-                          <p className="text-xs text-slate-500">Status: {person.status}</p>
-                        </div>
-                      </div>
-                      <button className="rounded-xl bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950" onClick={() => sendRequestMutation.mutate(person.id)} disabled={sendRequestMutation.isPending}>
-                        {sendRequestMutation.isPending ? 'Sending…' : 'Send Request'}
-                      </button>
-                    </div>
+                {discoverPeople.length === 0 ? (
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
+                    No other Task Manager accounts were found. If you have more users registered, they will appear here.
                   </div>
-                ))}
+                ) : (
+                  discoverPeople.map((person) => (
+                    <div key={person.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-cyan-500/20 text-sm font-semibold text-cyan-300">
+                            {person.avatar ? <img src={person.avatar} alt={person.username} className="h-11 w-11 rounded-full object-cover" /> : (person.username || 'U').slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-medium">{person.fullName || person.username}</p>
+                            <p className="text-sm text-slate-400">@{person.username}</p>
+                            <p className="text-sm text-slate-400">{person.email}</p>
+                            {person.mutualWorkspaces?.length > 0 && <p className="text-xs text-cyan-300">Mutual workspaces: {person.mutualWorkspaces.map((workspace) => workspace.name).join(', ')}</p>}
+                            {person.mutualProjects?.length > 0 && <p className="text-xs text-cyan-300">Mutual projects: {person.mutualProjects.map((project) => project.name).join(', ')}</p>}
+                            <p className="text-xs text-slate-500">Status: {person.status}</p>
+                          </div>
+                        </div>
+                        <button className="rounded-xl bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950" onClick={() => sendRequestMutation.mutate(person.id)} disabled={sendRequestMutation.isPending}>
+                          {sendRequestMutation.isPending ? 'Sending…' : 'Send Request'}
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </section>
 

@@ -27,61 +27,44 @@ const getMutualContext = async (userId, currentUserId) => {
 };
 
 export const buildDiscoverPeopleSuggestions = async (userId) => {
-  const [friends, pendingRequests, allUsers] = await Promise.all([
-    prisma.friendship.findMany({
-      where: { OR: [{ userAId: userId }, { userBId: userId }] },
-      select: { userAId: true, userBId: true },
-    }),
-    prisma.friendRequest.findMany({
-      where: { OR: [{ senderId: userId }, { receiverId: userId }] },
-      select: { senderId: true, receiverId: true, status: true },
-    }),
-    prisma.user.findMany({
-      where: { id: { not: userId } },
-      select: { id: true, username: true, email: true, avatar: true, bio: true, createdAt: true },
-    }),
-  ]);
-
-  const connectedIds = new Set(friends.flatMap((entry) => [entry.userAId, entry.userBId]).filter((id) => id !== userId));
-  const pendingIds = new Set(
-    pendingRequests
-      .filter((entry) => entry.status === 'PENDING')
-      .flatMap((entry) => [entry.senderId, entry.receiverId])
-      .filter((id) => id !== userId)
-  );
+  const allUsers = await prisma.user.findMany({
+    where: { id: { not: userId } },
+    select: { id: true, username: true, email: true, avatar: true, bio: true, createdAt: true },
+  });
 
   const candidates = await Promise.all(
-    allUsers
-      .filter((user) => !connectedIds.has(user.id) && !pendingIds.has(user.id))
-      .map(async (user) => {
-        const context = await getMutualContext(user.id, userId);
-        return {
-          ...user,
-          fullName: user.bio || user.username,
-          status: 'Offline',
-          mutualWorkspaces: context.mutualWorkspaces,
-          mutualProjects: context.mutualProjects,
-        };
-      })
+    allUsers.map(async (user) => {
+      const context = await getMutualContext(user.id, userId);
+      return {
+        ...user,
+        fullName: user.bio || user.username,
+        status: 'Offline',
+        mutualWorkspaces: context.mutualWorkspaces,
+        mutualProjects: context.mutualProjects,
+      };
+    })
   );
 
-  return candidates.slice(0, 20);
+  return candidates.slice(0, 50);
 };
 
 export const persistDiscoverPeopleSuggestions = async (userId) => {
   const suggestions = await buildDiscoverPeopleSuggestions(userId);
 
-  await prisma.connectionSuggestion.deleteMany({ where: { userId } });
-
-  await prisma.connectionSuggestion.createMany({
-    data: suggestions.map((item) => ({
-      userId,
-      suggestedUserId: item.id,
-      reason: item.mutualWorkspaces.length || item.mutualProjects.length ? 'Mutual workspace/project overlap' : 'New connection',
-      mutualWorkspaceCount: item.mutualWorkspaces.length,
-      mutualProjectCount: item.mutualProjects.length,
-    })),
-  });
+  try {
+    await prisma.connectionSuggestion.deleteMany({ where: { userId } });
+    await prisma.connectionSuggestion.createMany({
+      data: suggestions.map((item) => ({
+        userId,
+        suggestedUserId: item.id,
+        reason: item.mutualWorkspaces.length || item.mutualProjects.length ? 'Mutual workspace/project overlap' : 'New connection',
+        mutualWorkspaceCount: item.mutualWorkspaces.length,
+        mutualProjectCount: item.mutualProjects.length,
+      })),
+    });
+  } catch (error) {
+    console.warn('Discover people persistence skipped:', error?.message || error);
+  }
 
   return suggestions;
 };
