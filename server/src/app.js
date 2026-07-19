@@ -34,6 +34,7 @@ app.use(
         // Vercel Production
         'https://task-manager-git-main-duk-ochir.vercel.app',
         'https://task-manager-4ackvtpa2-duk-ochir.vercel.app',
+        'https://task-manager-self-six-61.vercel.app',
       ];
 
       if (!origin || allowedOrigins.includes(origin)) {
