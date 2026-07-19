@@ -47,7 +47,12 @@ initSocket(server);
 
 // Run DB fix before starting server (best-effort, idempotent)
 (async () => {
-  await ensureChatRoomsTypeColumn();
+  try {
+    await ensureChatRoomsTypeColumn();
+  } catch (error) {
+    console.error('[STARTUP] DB fix failed:', error?.message || error);
+  }
+
   server.listen(env.port, () => {
     console.log(`TaskFlow Pro API listening on port ${env.port}`);
   });

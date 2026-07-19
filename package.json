@@ -1,11 +1,14 @@
 {
   "name": "taskflow-server",
   "version": "1.0.0",
-  "main": "src/index.js",
+  "private": true,
   "type": "module",
+  "workspaces": [
+    "server"
+  ],
   "scripts": {
-    "dev": "nodemon src/index.js",
-    "start": "node src/index.js"
+    "dev": "npm --prefix server run dev",
+    "start": "npm --prefix server run start"
   },
   "dependencies": {
     "@prisma/client": "^5.16.0",

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../middlewares/auth.js';
+import { getChatSchemaHealth } from '../controllers/chatHealthController.js';
 import {
   createChatMessage,
   createPrivateChatRoom,
@@ -20,6 +21,7 @@ import {
 
 const router = Router();
 
+router.get('/health/schema', authenticate, getChatSchemaHealth);
 router.get('/rooms', authenticate, getChatRooms);
 router.get('/rooms/presence', authenticate, getChatPresence);
 router.post('/rooms/private', authenticate, createPrivateChatRoom);
