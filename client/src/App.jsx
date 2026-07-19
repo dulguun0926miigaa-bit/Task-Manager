@@ -702,15 +702,16 @@ const DashboardPage = ({ user, onLogout }) => {
     onError: () => toast.error('Could not delete workspace'),
   });
 
-  const logoutMutation = useMutation({
-    mutationFn: () => api.post('/auth/logout'),
-    onSuccess: () => {
-      clearStoredToken();
-      delete api.defaults.headers.common.Authorization;
-      onLogout();
-      navigate('/', { replace: true });
-    },
-  });
+  const handleLogout = () => {
+    api.post('/auth/logout', { refreshToken: getStoredRefreshToken() }).catch((error) => {
+      console.warn('Logout API failed:', error?.message || error);
+    });
+
+    clearStoredToken();
+    delete api.defaults.headers.common.Authorization;
+    onLogout();
+    navigate('/', { replace: true });
+  };
 
   const selectedWorkspace = useMemo(() => {
     return groups.find((group) => group.id === selectedWorkspaceId) || workspaceDetails || null;
@@ -781,7 +782,7 @@ const DashboardPage = ({ user, onLogout }) => {
               <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2" onClick={() => setShowGroupModal(true)}>New workspace</button>
               <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2" onClick={() => setShowProjectModal(true)}>New project</button>
               <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2" onClick={() => { resetTaskForm(); setShowTaskModal(true); }}>New task</button>
-              <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => logoutMutation.mutate()}>Logout</button>
+              <button type="button" className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={handleLogout}>Logout</button>
             </div>
           </div>
         </header>
