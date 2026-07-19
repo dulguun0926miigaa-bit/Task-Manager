@@ -494,6 +494,7 @@ const DashboardPage = ({ user, onLogout }) => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['friendRequests'] });
       queryClient.invalidateQueries({ queryKey: ['discoverPeople'] });
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
       toast.success('Friend request sent');
     },
     onError: (error) => toast.error(error?.response?.data?.message || 'Unable to send request'),
@@ -1003,8 +1004,8 @@ const DashboardPage = ({ user, onLogout }) => {
                           <p className="text-xs text-slate-500">Status: {person.status}</p>
                         </div>
                       </div>
-                      <button className="rounded-xl bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950" onClick={() => sendRequestMutation.mutate(person.id)}>
-                        Send Request
+                      <button className="rounded-xl bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950" onClick={() => sendRequestMutation.mutate(person.id)} disabled={sendRequestMutation.isPending}>
+                        {sendRequestMutation.isPending ? 'Sending…' : 'Send Request'}
                       </button>
                     </div>
                   </div>

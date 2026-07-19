@@ -8,36 +8,38 @@ datasource db {
 }
 
 model User {
-  id                 String              @id @default(cuid())
-  username           String              @unique
-  email              String              @unique
-  password           String
-  avatar             String?
-  bio                String?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  isAdmin            Boolean             @default(false)
-  refreshToken       String?
-  sentRequests       FriendRequest[]     @relation("Sender")
-  receivedRequests   FriendRequest[]     @relation("Receiver")
-  friendshipsA       Friendship[]        @relation("UserA")
-  friendshipsB       Friendship[]        @relation("UserB")
-  memberships        Membership[]
-  ownedGroups        Group[]             @relation("Owner")
-  tasksCreated       Task[]              @relation("Creator")
-  taskAssignments    TaskAssignment[]
-  taskLabels         TaskLabel[]
-  timeEntries        TimeEntry[]
-  comments           Comment[]
-  activityLogs       ActivityLog[]
-  notifications      Notification[]
-  groupMessages      GroupMessage[]
-  readReceipts       ReadReceipt[]
-  projectMemberships ProjectMembership[]
-  chatMembers        ChatMember[]
-  sentMessages       Message[]             @relation("MessageSender")
-  messageReads       MessageRead[]         @relation("MessageReader")
-  messageReactions   MessageReaction[]     @relation("MessageReactor")
+  id                    String                 @id @default(cuid())
+  username              String                 @unique
+  email                 String                 @unique
+  password              String
+  avatar                String?
+  bio                   String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  isAdmin               Boolean                @default(false)
+  refreshToken          String?
+  sentRequests          FriendRequest[]        @relation("Sender")
+  receivedRequests      FriendRequest[]        @relation("Receiver")
+  friendshipsA          Friendship[]           @relation("UserA")
+  friendshipsB          Friendship[]           @relation("UserB")
+  connectionSuggestions ConnectionSuggestion[] @relation("SuggestedBy")
+  suggestedConnections  ConnectionSuggestion[] @relation("SuggestedUser")
+  memberships           Membership[]
+  ownedGroups           Group[]                @relation("Owner")
+  tasksCreated          Task[]                 @relation("Creator")
+  taskAssignments       TaskAssignment[]
+  taskLabels            TaskLabel[]
+  timeEntries           TimeEntry[]
+  comments              Comment[]
+  activityLogs          ActivityLog[]
+  notifications         Notification[]
+  groupMessages         GroupMessage[]
+  readReceipts          ReadReceipt[]
+  projectMemberships    ProjectMembership[]
+  chatMembers           ChatMember[]
+  sentMessages          Message[]              @relation("MessageSender")
+  messageReads          MessageRead[]          @relation("MessageReader")
+  messageReactions      MessageReaction[]      @relation("MessageReactor")
 
   @@map("users")
 }
@@ -65,6 +67,22 @@ model Friendship {
 
   @@unique([userAId, userBId])
   @@map("friendships")
+}
+
+model ConnectionSuggestion {
+  id                   String   @id @default(cuid())
+  userId               String
+  suggestedUserId      String
+  reason               String?
+  mutualWorkspaceCount Int      @default(0)
+  mutualProjectCount   Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  user                 User     @relation("SuggestedBy", fields: [userId], references: [id], onDelete: Cascade)
+  suggestedUser        User     @relation("SuggestedUser", fields: [suggestedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, suggestedUserId])
+  @@map("connection_suggestions")
 }
 
 model Group {
@@ -355,43 +373,43 @@ model ChatRoom {
 }
 
 model ChatMember {
-  id          String    @id @default(cuid())
-  chatRoomId  String
-  userId      String
-  role        String    @default("MEMBER")
-  joinedAt    DateTime  @default(now())
-  lastSeenAt  DateTime? 
-  createdAt   DateTime  @default(now())
-  chatRoom    ChatRoom  @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String    @id @default(cuid())
+  chatRoomId String
+  userId     String
+  role       String    @default("MEMBER")
+  joinedAt   DateTime  @default(now())
+  lastSeenAt DateTime?
+  createdAt  DateTime  @default(now())
+  chatRoom   ChatRoom  @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([chatRoomId, userId])
   @@map("chat_members")
 }
 
 model Message {
-  id            String             @id @default(cuid())
-  chatRoomId    String
-  senderId      String
-  content       String?
-  imageUrl      String?
-  fileUrl       String?
-  fileName      String?
-  fileType      String?
-  fileSize      Int?
-  replyToId     String?
-  editedAt      DateTime?
-  deletedAt     DateTime?
-  pinnedAt      DateTime?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  chatRoom      ChatRoom           @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
-  sender        User               @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
-  replyTo       Message?           @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies       Message[]          @relation("MessageReplies")
-  attachments   MessageAttachment[]
-  reactions     MessageReaction[]
-  reads         MessageRead[]
+  id          String              @id @default(cuid())
+  chatRoomId  String
+  senderId    String
+  content     String?
+  imageUrl    String?
+  fileUrl     String?
+  fileName    String?
+  fileType    String?
+  fileSize    Int?
+  replyToId   String?
+  editedAt    DateTime?
+  deletedAt   DateTime?
+  pinnedAt    DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  chatRoom    ChatRoom            @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  sender      User                @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo     Message?            @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     Message[]           @relation("MessageReplies")
+  attachments MessageAttachment[]
+  reactions   MessageReaction[]
+  reads       MessageRead[]
 
   @@map("messages")
 }

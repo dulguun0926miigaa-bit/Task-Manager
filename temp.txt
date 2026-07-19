@@ -1,0 +1,32 @@
+HTTP/1.1 401 Unauthorized
+Date: Sun, 19 Jul 2026 11:49:11 GMT
+Content-Type: application/json; charset=utf-8
+Transfer-Encoding: chunked
+Connection: keep-alive
+access-control-allow-credentials: true
+cf-cache-status: DYNAMIC
+content-security-policy: default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+etag: W/"25-SetIB6wLsPt3Ogr5oCd0XHpTaMw"
+origin-agent-cluster: ?1
+referrer-policy: no-referrer
+rndr-id: 8a24270d-f984-440f
+Server: cloudflare
+strict-transport-security: max-age=31536000; includeSubDomains
+vary: Origin
+vary: Accept-Encoding
+x-content-type-options: nosniff
+x-dns-prefetch-control: off
+x-download-options: noopen
+x-frame-options: SAMEORIGIN
+x-permitted-cross-domain-policies: none
+x-ratelimit-limit: 300
+x-ratelimit-remaining: 44
+x-ratelimit-reset: 1784462351
+x-render-origin-server: Render
+x-xss-protection: 0
+CF-RAY: a1d98059bb02fb63-ULN
+alt-svc: h3=":443"; ma=86400
+
+{"message":"Authentication required"}
