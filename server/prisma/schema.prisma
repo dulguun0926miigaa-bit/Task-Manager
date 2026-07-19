@@ -342,7 +342,7 @@ model ChatRoom {
   id          String       @id @default(cuid())
   type        String       @default("PROJECT")
   workspaceId String?
-  projectId   String?
+  projectId   String?      @unique
   name        String
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
