@@ -239,12 +239,20 @@ const DashboardPage = ({ user, onLogout }) => {
   const [showWorkspaceSettingsModal, setShowWorkspaceSettingsModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showProjectMembersModal, setShowProjectMembersModal] = useState(false);
+  const [showOrganizationModal, setShowOrganizationModal] = useState(false);
+  const [showBillingModal, setShowBillingModal] = useState(false);
+  const [organizationModalMode, setOrganizationModalMode] = useState('create');
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(null);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState(null);
+  const [selectedBillingPlanId, setSelectedBillingPlanId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
-  const [groupForm, setGroupForm] = useState({ name: '', description: '', privacy: 'PUBLIC', image: '' });
+  const [organizationForm, setOrganizationForm] = useState({ name: '', slug: '', description: '' });
+  const [organizationMemberForm, setOrganizationMemberForm] = useState({ userId: '', role: 'MEMBER' });
+  const [paymentMethodForm, setPaymentMethodForm] = useState({ provider: 'manual', brand: '', last4: '', expMonth: '', expYear: '', isDefault: true });
+  const [groupForm, setGroupForm] = useState({ name: '', description: '', privacy: 'PUBLIC', image: '', organizationId: '' });
   const [projectForm, setProjectForm] = useState({ name: '', key: '' });
   const [projectMemberSearch, setProjectMemberSearch] = useState('');
   const [projectMemberForm, setProjectMemberForm] = useState({ userId: '', role: 'MEMBER' });
@@ -302,6 +310,31 @@ const DashboardPage = ({ user, onLogout }) => {
     queryFn: () => api.get('/users/discover').then((res) => res.data.users || []),
     enabled: Boolean(user?.id),
   });
+  const { data: organizations = [] } = useQuery({
+    queryKey: ['organizations'],
+    queryFn: () => api.get('/organizations').then((res) => res.data.organizations || []),
+    enabled: Boolean(user?.id),
+  });
+  const { data: plans = [] } = useQuery({
+    queryKey: ['plans'],
+    queryFn: () => api.get('/organizations/plans').then((res) => res.data.plans || []),
+    enabled: Boolean(user?.id),
+  });
+  const { data: selectedOrganizationDetails } = useQuery({
+    queryKey: ['organization', selectedOrganizationId],
+    queryFn: () => api.get(`/organizations/${selectedOrganizationId}`).then((res) => res.data.organization || null),
+    enabled: Boolean(selectedOrganizationId),
+  });
+  const { data: organizationInvoices = [] } = useQuery({
+    queryKey: ['organizationInvoices', selectedOrganizationId],
+    queryFn: () => api.get(`/organizations/${selectedOrganizationId}/invoices`).then((res) => res.data.invoices || []),
+    enabled: Boolean(selectedOrganizationId),
+  });
+  const { data: paymentMethods = [] } = useQuery({
+    queryKey: ['organizationPaymentMethods', selectedOrganizationId],
+    queryFn: () => api.get(`/organizations/${selectedOrganizationId}/payment-methods`).then((res) => res.data.paymentMethods || []),
+    enabled: Boolean(selectedOrganizationId),
+  });
   const { data: projectMembers = [] } = useQuery({
     queryKey: ['projectMembers', selectedProjectId, projectMemberSearch],
     queryFn: () => api.get(`/projects/${selectedProjectId}/members?q=${encodeURIComponent(projectMemberSearch)}`).then((res) => res.data.memberships || []),
@@ -311,6 +344,55 @@ const DashboardPage = ({ user, onLogout }) => {
     queryKey: ['projectChat', selectedProjectId],
     queryFn: () => api.get(`/chat/projects/${selectedProjectId}/messages`).then((res) => res.data.messages || []),
     enabled: Boolean(selectedProjectId),
+  });
+  const createOrganizationMutation = useMutation({
+    mutationFn: (payload) => api.post('/organizations', payload),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['organizations'] });
+      setOrganizationForm({ name: '', slug: '', description: '' });
+      setSelectedOrganizationId(res.data.organization?.id || selectedOrganizationId);
+      setShowOrganizationModal(false);
+      toast.success('Organization created');
+    },
+    onError: () => toast.error('Could not create organization'),
+  });
+  const updateOrganizationMutation = useMutation({
+    mutationFn: (payload) => api.put(`/organizations/${selectedOrganizationId}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organizations'] });
+      queryClient.invalidateQueries({ queryKey: ['organization', selectedOrganizationId] });
+      setShowOrganizationModal(false);
+      toast.success('Organization updated');
+    },
+    onError: () => toast.error('Could not update organization'),
+  });
+  const addOrganizationMemberMutation = useMutation({
+    mutationFn: (payload) => api.post(`/organizations/${selectedOrganizationId}/members`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organizations'] });
+      queryClient.invalidateQueries({ queryKey: ['organization', selectedOrganizationId] });
+      toast.success('Member added to organization');
+    },
+    onError: () => toast.error('Could not add member'),
+  });
+  const createSubscriptionMutation = useMutation({
+    mutationFn: (planId) => api.post(`/organizations/${selectedOrganizationId}/subscriptions`, { planId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organization', selectedOrganizationId] });
+      queryClient.invalidateQueries({ queryKey: ['organizationInvoices', selectedOrganizationId] });
+      queryClient.invalidateQueries({ queryKey: ['organizationPaymentMethods', selectedOrganizationId] });
+      toast.success('Subscription created');
+    },
+    onError: () => toast.error('Could not create subscription'),
+  });
+  const addPaymentMethodMutation = useMutation({
+    mutationFn: (payload) => api.post(`/organizations/${selectedOrganizationId}/payment-methods`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organizationPaymentMethods', selectedOrganizationId] });
+      queryClient.invalidateQueries({ queryKey: ['organization', selectedOrganizationId] });
+      toast.success('Payment method added');
+    },
+    onError: () => toast.error('Could not add payment method'),
   });
 
   useEffect(() => {
@@ -330,6 +412,21 @@ const DashboardPage = ({ user, onLogout }) => {
       setSelectedProjectId(projects[0]?.id || null);
     }
   }, [projects, selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedOrganizationId && organizations.length) {
+      setSelectedOrganizationId(organizations[0].id);
+    }
+    if (selectedOrganizationId && !organizations.some((organization) => organization.id === selectedOrganizationId)) {
+      setSelectedOrganizationId(organizations[0]?.id || null);
+    }
+  }, [organizations, selectedOrganizationId]);
+
+  useEffect(() => {
+    if (selectedOrganizationId) {
+      setGroupForm((prev) => ({ ...prev, organizationId: selectedOrganizationId }));
+    }
+  }, [selectedOrganizationId]);
 
   useEffect(() => {
     const hasSameMessages = chatMessages.length === chatHistory.length && chatMessages.every((message, index) => message.id === chatHistory[index]?.id);
@@ -426,7 +523,7 @@ const DashboardPage = ({ user, onLogout }) => {
   }, [activeChatRoomId, user?.id]);
 
   const resetGroupForm = () => {
-    setGroupForm({ name: '', description: '', privacy: 'PUBLIC', image: '' });
+    setGroupForm({ name: '', description: '', privacy: 'PUBLIC', image: '', organizationId: selectedOrganizationId || '' });
   };
 
   const createGroupMutation = useMutation({
@@ -798,6 +895,20 @@ const DashboardPage = ({ user, onLogout }) => {
               </div>
             </div>
             <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm text-slate-400">Organizations</p>
+                <button className="text-xs text-cyan-300" onClick={() => { setOrganizationModalMode('create'); setOrganizationForm({ name: '', slug: '', description: '' }); setShowOrganizationModal(true); }}>New org</button>
+              </div>
+              <div className="mt-3 space-y-2">
+                {organizations.map((organization) => (
+                  <button key={organization.id} className={`w-full rounded-xl px-3 py-2 text-left text-sm ${selectedOrganizationId === organization.id ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-800 text-slate-300'}`} onClick={() => setSelectedOrganizationId(organization.id)}>
+                    <div className="font-medium">{organization.name}</div>
+                    <div className="text-xs text-slate-400">{organization.description || organization.slug || 'Organization'}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
               <p className="text-sm text-slate-400">Workspaces</p>
               <div className="mt-3 space-y-2">
                 {groups.map((group) => (
@@ -811,6 +922,60 @@ const DashboardPage = ({ user, onLogout }) => {
           </aside>
 
           <main className="space-y-6">
+            {selectedOrganizationDetails && (
+              <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-semibold">Organization Hub</h2>
+                    <p className="text-sm text-slate-400">Manage org members, billing, and tenant resources.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm" onClick={() => setShowBillingModal(true)}>Billing</button>
+                    <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm" onClick={() => { setOrganizationModalMode('edit'); setOrganizationForm({ name: selectedOrganizationDetails?.name || '', slug: selectedOrganizationDetails?.slug || '', description: selectedOrganizationDetails?.description || '' }); setShowOrganizationModal(true); }}>Edit org</button>
+                  </div>
+                </div>
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                    <p className="text-sm text-slate-400">Organization</p>
+                    <p className="mt-2 text-lg font-semibold">{selectedOrganizationDetails.name}</p>
+                    <p className="text-sm text-slate-400">{selectedOrganizationDetails.description || 'No description yet.'}</p>
+                    <p className="mt-2 text-xs text-slate-500">Slug: {selectedOrganizationDetails.slug}</p>
+                    <p className="mt-2 text-xs text-slate-500">Owner: {selectedOrganizationDetails.owner?.username || selectedOrganizationDetails.owner?.email}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                    <p className="text-sm text-slate-400">Active subscription</p>
+                    {selectedOrganizationDetails.subscriptions?.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        {selectedOrganizationDetails.subscriptions.map((subscription) => (
+                          <div key={subscription.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
+                            <div className="text-sm font-medium">{subscription.plan?.name}</div>
+                            <div className="text-xs text-slate-400">{subscription.plan?.description}</div>
+                            <div className="mt-2 text-xs text-slate-500">Status: {subscription.status}</div>
+                            <div className="text-xs text-slate-500">Renews: {subscription.currentPeriodEnd ? new Date(subscription.currentPeriodEnd).toLocaleDateString() : 'TBD'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-900 p-3 text-sm text-slate-400">No subscription yet. Open billing to choose a plan.</div>
+                    )}
+                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                    <p className="text-sm text-slate-400">Payment methods</p>
+                    <div className="mt-3 space-y-2">
+                      {paymentMethods.length === 0 ? (
+                        <p className="text-sm text-slate-400">No payment methods linked.</p>
+                      ) : paymentMethods.map((method) => (
+                        <div key={method.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
+                          <p className="text-sm font-medium">{method.brand || 'Manual card'}</p>
+                          <p className="text-xs text-slate-400">•••• {method.last4}</p>
+                          <p className="text-xs text-slate-500">Expires {method.expMonth}/{method.expYear}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
             <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Workspace Hub</h2>
@@ -1148,10 +1313,119 @@ const DashboardPage = ({ user, onLogout }) => {
                 <option value="PUBLIC">Public</option>
                 <option value="PRIVATE">Private</option>
               </select>
+              <select className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={groupForm.organizationId || ''} onChange={(e) => setGroupForm({ ...groupForm, organizationId: e.target.value || '' })}>
+                <option value="">No organization</option>
+                {organizations.map((organization) => (
+                  <option key={organization.id} value={organization.id}>{organization.name}</option>
+                ))}
+              </select>
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <button className="rounded-xl border border-slate-700 px-3 py-2" onClick={() => { setShowGroupModal(false); resetGroupForm(); }}>Cancel</button>
               <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => createGroupMutation.mutate(groupForm)}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showOrganizationModal && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900 p-6">
+            <h3 className="text-xl font-semibold">{organizationModalMode === 'edit' ? 'Edit organization' : 'Create organization'}</h3>
+            <div className="mt-4 space-y-3">
+              <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Organization name" value={organizationForm.name} onChange={(e) => setOrganizationForm({ ...organizationForm, name: e.target.value })} />
+              <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Organization slug" value={organizationForm.slug} onChange={(e) => setOrganizationForm({ ...organizationForm, slug: e.target.value })} />
+              <textarea className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Description" value={organizationForm.description} onChange={(e) => setOrganizationForm({ ...organizationForm, description: e.target.value })} />
+              {organizationModalMode === 'edit' && selectedOrganizationDetails && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3 text-sm">
+                  <p className="font-medium">Members</p>
+                  {selectedOrganizationDetails.memberships?.map((member) => (
+                    <div key={member.id} className="mt-2 flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 p-2">
+                      <div>
+                        <p>{member.user?.username || member.user?.email}</p>
+                        <p className="text-xs text-slate-400">{member.role}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="mt-3 space-y-2">
+                    <input className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" placeholder="Invite user ID" value={organizationMemberForm.userId} onChange={(e) => setOrganizationMemberForm({ ...organizationMemberForm, userId: e.target.value })} />
+                    <select className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={organizationMemberForm.role} onChange={(e) => setOrganizationMemberForm({ ...organizationMemberForm, role: e.target.value })}>
+                      <option value="MEMBER">Member</option>
+                      <option value="ADMIN">Admin</option>
+                      <option value="OWNER">Owner</option>
+                    </select>
+                    <button className="w-full rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => addOrganizationMemberMutation.mutate(organizationMemberForm)}>Add member</button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button className="rounded-xl border border-slate-700 px-3 py-2" onClick={() => { setShowOrganizationModal(false); setOrganizationForm({ name: '', slug: '', description: '' }); setOrganizationMemberForm({ userId: '', role: 'MEMBER' }); }}>Cancel</button>
+              <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => {
+                if (organizationModalMode === 'edit') {
+                  updateOrganizationMutation.mutate(organizationForm);
+                } else {
+                  createOrganizationMutation.mutate(organizationForm);
+                }
+              }}>{organizationModalMode === 'edit' ? 'Save changes' : 'Create organization'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBillingModal && selectedOrganizationId && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-2xl rounded-3xl border border-slate-800 bg-slate-900 p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-semibold">Billing</h3>
+                <p className="text-sm text-slate-400">Select a plan, add payment details, and review invoices.</p>
+              </div>
+              <button className="rounded-full border border-slate-700 px-3 py-2 text-sm" onClick={() => setShowBillingModal(false)}>Close</button>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                <p className="text-sm text-slate-400">Plans</p>
+                <div className="mt-3 space-y-3">
+                  {plans.map((plan) => (
+                    <label key={plan.id} className="block rounded-2xl border border-slate-800 bg-slate-900 p-3">
+                      <input type="radio" name="billingPlan" value={plan.id} className="mr-2" checked={selectedBillingPlanId === plan.id} onChange={(e) => setSelectedBillingPlanId(e.target.value)} />
+                      <span className="font-medium">{plan.name}</span>
+                      <p className="text-xs text-slate-400">{plan.description}</p>
+                      <p className="text-xs text-slate-500">{(plan.priceCents / 100).toFixed(2)} {plan.currency.toUpperCase()} / {plan.interval}</p>
+                    </label>
+                  ))}
+                </div>
+                <button className="mt-4 w-full rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" disabled={!selectedBillingPlanId} onClick={() => createSubscriptionMutation.mutate(selectedBillingPlanId)}>Subscribe</button>
+              </div>
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-sm text-slate-400">Payment method</p>
+                  <div className="mt-3 space-y-3">
+                    <input className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2" placeholder="Card brand" value={paymentMethodForm.brand} onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, brand: e.target.value })} />
+                    <input className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2" placeholder="Last 4 digits" value={paymentMethodForm.last4} onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, last4: e.target.value })} />
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <input className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2" placeholder="Expiry month" value={paymentMethodForm.expMonth} onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, expMonth: e.target.value })} />
+                      <input className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2" placeholder="Expiry year" value={paymentMethodForm.expYear} onChange={(e) => setPaymentMethodForm({ ...paymentMethodForm, expYear: e.target.value })} />
+                    </div>
+                    <button className="w-full rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => addPaymentMethodMutation.mutate(paymentMethodForm)}>Save method</button>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                  <p className="text-sm text-slate-400">Invoices</p>
+                  <div className="mt-3 space-y-2">
+                    {organizationInvoices.length === 0 ? (
+                      <p className="text-sm text-slate-400">No invoices yet.</p>
+                    ) : organizationInvoices.map((invoice) => (
+                      <div key={invoice.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3 text-sm">
+                        <div className="font-medium">{invoice.status.toUpperCase()}</div>
+                        <div className="text-slate-400">{(invoice.amountCents / 100).toFixed(2)} {invoice.currency.toUpperCase()}</div>
+                        <div className="text-xs text-slate-500">Due {invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : 'N/A'}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

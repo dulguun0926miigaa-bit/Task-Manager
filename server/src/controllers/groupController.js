@@ -17,7 +17,13 @@ const addActivity = async ({ userId, groupId, entity, action, details }) => {
 
 export const createGroup = async (req, res, next) => {
   try {
-    const { name, description, privacy, image } = req.body;
+    const { name, description, privacy, image, organizationId } = req.body;
+    if (organizationId) {
+      const orgMembership = await prisma.organizationMembership.findFirst({ where: { organizationId, userId: req.user.id } });
+      if (!orgMembership) {
+        return res.status(403).json({ message: 'Not allowed to create a workspace under this organization' });
+      }
+    }
     const group = await prisma.group.create({
       data: {
         name,
@@ -25,6 +31,7 @@ export const createGroup = async (req, res, next) => {
         image,
         privacy: privacy || 'PUBLIC',
         ownerId: req.user.id,
+        organizationId: organizationId || null,
         settings: JSON.stringify({ theme: 'default' }),
         memberships: { create: [{ userId: req.user.id, role: 'SUPER_ADMIN' }] },
       },

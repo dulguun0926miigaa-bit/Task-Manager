@@ -86,24 +86,26 @@ model ConnectionSuggestion {
 }
 
 model Group {
-  id           String         @id @default(cuid())
-  name         String
-  description  String?
-  image        String?
-  privacy      String         @default("PUBLIC")
-  ownerId      String
-  isArchived   Boolean        @default(false)
-  settings     String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  owner        User           @relation("Owner", fields: [ownerId], references: [id], onDelete: Cascade)
-  memberships  Membership[]
-  projects     Project[]
-  tasks        Task[]
-  messages     GroupMessage[]
-  invitations  Invitation[]
-  activityLogs ActivityLog[]
-  chatRooms    ChatRoom[]
+  id             String         @id @default(cuid())
+  name           String
+  description    String?
+  image          String?
+  privacy        String         @default("PUBLIC")
+  ownerId        String
+  organizationId String?
+  isArchived     Boolean        @default(false)
+  settings       String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  owner          User           @relation("Owner", fields: [ownerId], references: [id], onDelete: Cascade)
+  organization   Organization?  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberships    Membership[]
+  projects       Project[]
+  tasks          Task[]
+  messages       GroupMessage[]
+  invitations    Invitation[]
+  activityLogs   ActivityLog[]
+  chatRooms      ChatRoom[]
 
   @@map("groups")
 }
@@ -510,4 +512,121 @@ model Invitation {
   group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@map("invitations")
+}
+
+model Organization {
+  id             String                   @id @default(cuid())
+  name           String
+  slug           String                   @unique
+  description    String?
+  ownerId        String
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  owner          User                     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  groups         Group[]
+  memberships    OrganizationMembership[]
+  subscriptions  Subscription[]
+  invoices       Invoice[]
+  paymentMethods PaymentMethod[]
+  activityLogs   ActivityLog[]
+
+  @@map("organizations")
+}
+
+model OrganizationMembership {
+  id             String        @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String        @default("MEMBER")
+  joinedAt       DateTime      @default(now())
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@map("organization_memberships")
+}
+
+model SubscriptionPlan {
+  id          String         @id @default(cuid())
+  name        String
+  slug        String         @unique
+  description String?
+  priceCents  Int
+  currency    String         @default("usd")
+  interval    String         @default("month")
+  features    String?
+  active      Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+model Subscription {
+  id                   String       @id @default(cuid())
+  organizationId       String
+  planId               String
+  status               String       @default("ACTIVE")
+  startedAt            DateTime     @default(now())
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean      @default(false)
+  stripeSubscriptionId String?
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan                 SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  invoices             Invoice[]
+
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id               String        @id @default(cuid())
+  organizationId   String
+  subscriptionId   String?
+  amountCents      Int
+  currency         String        @default("usd")
+  status           String        @default("pending")
+  dueDate          DateTime?
+  paidAt           DateTime?
+  stripeInvoiceId  String?
+  metadata         String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription     Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@map("invoices")
+}
+
+model PaymentMethod {
+  id             String        @id @default(cuid())
+  organizationId String
+  provider       String
+  providerId     String
+  brand          String?
+  last4          String?
+  expMonth       Int?
+  expYear        Int?
+  isDefault      Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider, providerId])
+  @@map("payment_methods")
+}
+
+model UserAuthProvider {
+  id          String   @id @default(cuid())
+  userId      String
+  provider    String
+  providerId  String
+  email       String?
+  username    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerId])
+  @@map("user_auth_providers")
 }

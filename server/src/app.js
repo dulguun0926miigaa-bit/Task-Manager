@@ -14,6 +14,7 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import friendRoutes from './routes/friendRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import workspaceChatRoutes from './routes/workspaceChatRoutes.js';
+import organizationRoutes from './routes/organizationRoutes.js';
 import { errorHandler } from './middlewares/errorHandler.js';
 
 export const app = express();
@@ -73,5 +74,6 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/friends', friendRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/chatrooms', workspaceChatRoutes);
+app.use('/api/organizations', organizationRoutes);
 
 app.use(errorHandler);
