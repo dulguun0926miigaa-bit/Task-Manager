@@ -1042,7 +1042,21 @@ const DashboardPage = ({ user, onLogout }) => {
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <button className="rounded-xl border border-slate-700 px-3 py-2" onClick={() => setShowProjectModal(false)}>Cancel</button>
-              <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={() => createProjectMutation.mutate({ workspaceId: selectedWorkspaceId, ...projectForm })}>Save</button>
+              <button className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950 disabled:opacity-50" disabled={!projectForm.name.trim() || !projectForm.key.trim() || !selectedWorkspaceId} onClick={() => {
+                if (!selectedWorkspaceId) {
+                  toast.error('Select a workspace first');
+                  return;
+                }
+                if (!projectForm.name.trim()) {
+                  toast.error('Project name is required');
+                  return;
+                }
+                if (!projectForm.key.trim()) {
+                  toast.error('Project key is required');
+                  return;
+                }
+                createProjectMutation.mutate({ workspaceId: selectedWorkspaceId, ...projectForm });
+              }}>Save</button>
             </div>
           </div>
         </div>

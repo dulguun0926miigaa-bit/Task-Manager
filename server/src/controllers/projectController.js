@@ -59,15 +59,20 @@ export const listProjects = async (req, res, next) => {
 export const createProject = async (req, res, next) => {
   try {
     const { workspaceId, name, key, icon, description, color, visibility, favorite, settings } = req.body;
+    console.log('[PROJECT] Create attempt:', { workspaceId, name, key, userId: req.user.id });
+    
     if (!workspaceId || !name || !key) {
+      console.log('[PROJECT] Missing required fields:', { workspaceId, name, key });
       return res.status(400).json({ message: 'workspaceId, name, and key are required' });
     }
 
     const membership = await getWorkspaceMembership(workspaceId, req.user.id);
     if (!membership) {
+      console.log('[PROJECT] User not in workspace:', { workspaceId, userId: req.user.id });
       return res.status(403).json({ message: 'Not allowed' });
     }
 
+    console.log('[PROJECT] Creating project:', name);
     const project = await prisma.project.create({
       data: {
         name,
@@ -113,8 +118,10 @@ export const createProject = async (req, res, next) => {
     });
 
     await addActivity({ userId: req.user.id, projectId: project.id, entity: 'project', action: 'created', details: `Project ${name} was created` });
+    console.log('[PROJECT] Created successfully:', { projectId: project.id, name });
     res.status(201).json({ project });
   } catch (error) {
+    console.error('[PROJECT] Create error:', error?.message, error?.stack);
     next(error);
   }
 };
