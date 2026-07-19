@@ -2,10 +2,38 @@ import { createServer } from 'http';
 import { app } from './app.js';
 import { env } from './config/env.js';
 import { initSocket } from './services/socketService.js';
+import { prisma } from './lib/prisma.js';
+
+// Ensure production DB has the `type` column on chat_rooms (idempotent)
+const ensureChatRoomsTypeColumn = async () => {
+  try {
+    // Only run for Postgres-like DBs
+    const result = await prisma.$queryRaw`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'chat_rooms' AND column_name = 'type'
+    `;
+
+    if (!result || result.length === 0) {
+      console.log('[DB FIX] `type` column missing on chat_rooms, adding...');
+      await prisma.$executeRawUnsafe(
+        'ALTER TABLE chat_rooms ADD COLUMN IF NOT EXISTS "type" varchar NOT NULL DEFAULT \'PROJECT\''
+      );
+      console.log('[DB FIX] `type` column added successfully');
+    } else {
+      console.log('[DB FIX] `type` column already exists on chat_rooms');
+    }
+  } catch (err) {
+    console.error('[DB FIX] error ensuring chat_rooms.type column:', err?.message || err);
+  }
+};
 
 const server = createServer(app);
 initSocket(server);
 
-server.listen(env.port, () => {
-  console.log(`TaskFlow Pro API listening on port ${env.port}`);
-});
+// Run DB fix before starting server (best-effort, idempotent)
+(async () => {
+  await ensureChatRoomsTypeColumn();
+  server.listen(env.port, () => {
+    console.log(`TaskFlow Pro API listening on port ${env.port}`);
+  });
+})();
