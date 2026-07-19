@@ -8,38 +8,41 @@ datasource db {
 }
 
 model User {
-  id                    String                 @id @default(cuid())
-  username              String                 @unique
-  email                 String                 @unique
-  password              String
-  avatar                String?
-  bio                   String?
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  isAdmin               Boolean                @default(false)
-  refreshToken          String?
-  sentRequests          FriendRequest[]        @relation("Sender")
-  receivedRequests      FriendRequest[]        @relation("Receiver")
-  friendshipsA          Friendship[]           @relation("UserA")
-  friendshipsB          Friendship[]           @relation("UserB")
-  connectionSuggestions ConnectionSuggestion[] @relation("SuggestedBy")
-  suggestedConnections  ConnectionSuggestion[] @relation("SuggestedUser")
-  memberships           Membership[]
-  ownedGroups           Group[]                @relation("Owner")
-  tasksCreated          Task[]                 @relation("Creator")
-  taskAssignments       TaskAssignment[]
-  taskLabels            TaskLabel[]
-  timeEntries           TimeEntry[]
-  comments              Comment[]
-  activityLogs          ActivityLog[]
-  notifications         Notification[]
-  groupMessages         GroupMessage[]
-  readReceipts          ReadReceipt[]
-  projectMemberships    ProjectMembership[]
-  chatMembers           ChatMember[]
-  sentMessages          Message[]              @relation("MessageSender")
-  messageReads          MessageRead[]          @relation("MessageReader")
-  messageReactions      MessageReaction[]      @relation("MessageReactor")
+  id                      String                   @id @default(cuid())
+  username                String                   @unique
+  email                   String                   @unique
+  password                String
+  avatar                  String?
+  bio                     String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  isAdmin                 Boolean                  @default(false)
+  refreshToken            String?
+  sentRequests            FriendRequest[]          @relation("Sender")
+  receivedRequests        FriendRequest[]          @relation("Receiver")
+  friendshipsA            Friendship[]             @relation("UserA")
+  friendshipsB            Friendship[]             @relation("UserB")
+  connectionSuggestions   ConnectionSuggestion[]   @relation("SuggestedBy")
+  suggestedConnections    ConnectionSuggestion[]   @relation("SuggestedUser")
+  memberships             Membership[]
+  ownedGroups             Group[]                  @relation("Owner")
+  ownedOrganizations      Organization[]
+  organizationMemberships OrganizationMembership[]
+  authProviders           UserAuthProvider[]
+  tasksCreated            Task[]                   @relation("Creator")
+  taskAssignments         TaskAssignment[]
+  taskLabels              TaskLabel[]
+  timeEntries             TimeEntry[]
+  comments                Comment[]
+  activityLogs            ActivityLog[]
+  notifications           Notification[]
+  groupMessages           GroupMessage[]
+  readReceipts            ReadReceipt[]
+  projectMemberships      ProjectMembership[]
+  chatMembers             ChatMember[]
+  sentMessages            Message[]                @relation("MessageSender")
+  messageReads            MessageRead[]            @relation("MessageReader")
+  messageReactions        MessageReaction[]        @relation("MessageReactor")
 
   @@map("users")
 }
@@ -328,19 +331,21 @@ model CustomField {
 }
 
 model ActivityLog {
-  id        String   @id @default(cuid())
-  entity    String
-  action    String
-  details   String?
-  createdAt DateTime @default(now())
-  userId    String
-  taskId    String?
-  groupId   String?
-  projectId String?
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  task      Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  group     Group?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  id             String        @id @default(cuid())
+  entity         String
+  action         String
+  details        String?
+  createdAt      DateTime      @default(now())
+  userId         String
+  taskId         String?
+  groupId        String?
+  projectId      String?
+  organizationId String?
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task           Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  group          Group?        @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  project        Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("activity_logs")
 }
@@ -534,45 +539,45 @@ model Organization {
 }
 
 model OrganizationMembership {
-  id             String        @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   userId         String
-  role           String        @default("MEMBER")
-  joinedAt       DateTime      @default(now())
-  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String       @default("MEMBER")
+  joinedAt       DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, userId])
   @@map("organization_memberships")
 }
 
 model SubscriptionPlan {
-  id          String         @id @default(cuid())
-  name        String
-  slug        String         @unique
-  description String?
-  priceCents  Int
-  currency    String         @default("usd")
-  interval    String         @default("month")
-  features    String?
-  active      Boolean        @default(true)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id            String         @id @default(cuid())
+  name          String
+  slug          String         @unique
+  description   String?
+  priceCents    Int
+  currency      String         @default("usd")
+  interval      String         @default("month")
+  features      String?
+  active        Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   subscriptions Subscription[]
 
   @@map("subscription_plans")
 }
 
 model Subscription {
-  id                   String       @id @default(cuid())
+  id                   String           @id @default(cuid())
   organizationId       String
   planId               String
-  status               String       @default("ACTIVE")
-  startedAt            DateTime     @default(now())
+  status               String           @default("ACTIVE")
+  startedAt            DateTime         @default(now())
   currentPeriodEnd     DateTime?
-  cancelAtPeriodEnd    Boolean      @default(false)
+  cancelAtPeriodEnd    Boolean          @default(false)
   stripeSubscriptionId String?
-  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization         Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   plan                 SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
   invoices             Invoice[]
 
@@ -580,26 +585,26 @@ model Subscription {
 }
 
 model Invoice {
-  id               String        @id @default(cuid())
-  organizationId   String
-  subscriptionId   String?
-  amountCents      Int
-  currency         String        @default("usd")
-  status           String        @default("pending")
-  dueDate          DateTime?
-  paidAt           DateTime?
-  stripeInvoiceId  String?
-  metadata         String?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-  organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  subscription     Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  id              String        @id @default(cuid())
+  organizationId  String
+  subscriptionId  String?
+  amountCents     Int
+  currency        String        @default("usd")
+  status          String        @default("pending")
+  dueDate         DateTime?
+  paidAt          DateTime?
+  stripeInvoiceId String?
+  metadata        String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 
   @@map("invoices")
 }
 
 model PaymentMethod {
-  id             String        @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   provider       String
   providerId     String
@@ -607,25 +612,25 @@ model PaymentMethod {
   last4          String?
   expMonth       Int?
   expYear        Int?
-  isDefault      Boolean       @default(false)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  isDefault      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, provider, providerId])
   @@map("payment_methods")
 }
 
 model UserAuthProvider {
-  id          String   @id @default(cuid())
-  userId      String
-  provider    String
-  providerId  String
-  email       String?
-  username    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  userId     String
+  provider   String
+  providerId String
+  email      String?
+  username   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerId])
   @@map("user_auth_providers")
