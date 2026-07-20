@@ -85,6 +85,7 @@ const refreshAccessToken = async () => {
     authSessionExpired = true;
     clearStoredToken();
     delete api.defaults.headers.common.Authorization;
+    window.dispatchEvent(new Event('auth:expired'));
     refreshQueue.forEach((resolve) => resolve(null));
     refreshQueue = [];
     throw error;
@@ -194,13 +195,22 @@ const AuthPage = ({ onAuthenticated }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto flex max-w-6xl flex-col items-center justify-center px-6 py-20">
-        <div className="w-full max-w-2xl rounded-3xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
+    <div className="app-shell min-h-screen text-slate-100">
+      <div className="mx-auto grid min-h-screen max-w-7xl items-center gap-12 px-6 py-12 lg:grid-cols-[1fr_0.85fr] lg:px-10">
+        <div className="hidden lg:block">
+          <div className="mb-8 flex items-center gap-3"><div className="brand-mark">TF</div><span className="text-sm font-semibold tracking-[0.24em] text-cyan-200">TASKFLOW PRO</span></div>
+          <p className="max-w-xl text-5xl font-semibold leading-[1.08] tracking-tight text-white">Turn complex work into <span className="auth-gradient-text">clear momentum.</span></p>
+          <p className="mt-6 max-w-lg text-lg leading-8 text-slate-400">Plan projects, align your team, and keep every conversation close to the work that matters.</p>
+          <div className="mt-10 grid max-w-xl grid-cols-3 gap-3">
+            {['Focused planning', 'Live teamwork', 'Clear progress'].map((label, index) => <div key={label} className="auth-feature"><span>0{index + 1}</span>{label}</div>)}
+          </div>
+        </div>
+        <div className="auth-card w-full max-w-xl justify-self-center rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl sm:p-8">
           <div className="mb-8 flex items-center justify-between">
             <div>
-              <p className="text-sm uppercase tracking-[0.3em] text-cyan-400">TaskFlow Pro</p>
-              <h1 className="mt-2 text-3xl font-semibold">Collaborate in real time</h1>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-cyan-300">Your workspace</p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight">{mode === 'login' ? 'Welcome back' : 'Start building'}</h1>
+              <p className="mt-2 text-sm text-slate-400">{mode === 'login' ? 'Sign in to continue where you left off.' : 'Create your account in a few seconds.'}</p>
             </div>
             <div className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-sm text-cyan-300">Live workspace</div>
           </div>
@@ -224,8 +234,8 @@ const AuthPage = ({ onAuthenticated }) => {
                 Remember me and stay signed in
               </label>
             )}
-            <button className="w-full rounded-xl bg-cyan-500 px-4 py-3 font-semibold text-slate-950" type="submit" disabled={loginMutation.isPending || registerMutation.isPending}>
-              {mode === 'login' ? 'Sign in' : 'Create account'}
+            <button className="auth-submit w-full rounded-xl bg-cyan-500 px-4 py-3 font-semibold text-slate-950" type="submit" disabled={loginMutation.isPending || registerMutation.isPending}>
+              {(loginMutation.isPending || registerMutation.isPending) ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
             </button>
           </form>
         </div>
@@ -273,6 +283,7 @@ const DashboardPage = ({ user, onLogout }) => {
   const [roomMessages, setRoomMessages] = useState([]);
   const [roomDraft, setRoomDraft] = useState('');
   const [roomTypingUsers, setRoomTypingUsers] = useState([]);
+  const [socketConnected, setSocketConnected] = useState(false);
   const socketRef = useRef(null);
   const previousProjectRoomRef = useRef(null);
   const previousChatRoomRef = useRef(null);
@@ -442,6 +453,9 @@ const DashboardPage = ({ user, onLogout }) => {
     const socketUrl = getSocketUrl();
     const socket = io(socketUrl, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
+    socket.on('connect', () => setSocketConnected(true));
+    socket.on('disconnect', () => setSocketConnected(false));
+    socket.on('connect_error', () => setSocketConnected(false));
     socket.emit('authenticate', { userId: user.id });
     socket.emit('join-room', `user:${user.id}`);
     socket.on('notification:new', (payload) => {
@@ -842,15 +856,24 @@ const DashboardPage = ({ user, onLogout }) => {
   const selectedProject = useMemo(() => projects.find((project) => project.id === selectedProjectId) || null, [projects, selectedProjectId]);
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 text-slate-100 md:p-6">
+    <div className="app-shell min-h-screen p-3 text-slate-100 sm:p-4 md:p-6">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <header className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl">
+        <header className="app-header rounded-3xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-sm uppercase tracking-[0.3em] text-cyan-400">TaskFlow Pro</p>
-              <h1 className="text-2xl font-semibold">Welcome back, {user.username}</h1>
+              <div className="flex items-center gap-3">
+                <div className="brand-mark">TF</div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">TaskFlow Pro</p>
+                  <h1 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">Welcome back, {user.username}</h1>
+                </div>
+              </div>
             </div>
-            <div className="flex gap-2">
+            <div className="toolbar flex flex-wrap items-center gap-2">
+              <div className={`connection-pill ${socketConnected ? 'is-online' : 'is-offline'}`}>
+                <span className="connection-dot" />
+                {socketConnected ? 'Live' : 'Reconnecting'}
+              </div>
               <div className="relative">
                 <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2" onClick={() => setShowNotifications((value) => !value)}>Notifications {unreadNotificationCount > 0 ? `(${unreadNotificationCount})` : ''}</button>
                 {showNotifications && (
@@ -887,8 +910,8 @@ const DashboardPage = ({ user, onLogout }) => {
           </div>
         </header>
 
-        <div className="grid gap-6 lg:grid-cols-[260px_1fr_320px]">
-          <aside className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-4">
+        <div className="dashboard-grid grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)_320px]">
+          <aside className="dashboard-sidebar space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-4">
             <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
               <p className="text-sm text-slate-400">Overview</p>
               <div className="mt-3 space-y-2 text-sm">
@@ -1638,8 +1661,14 @@ export default function App() {
     initialize();
   }, []);
 
+  useEffect(() => {
+    const handleExpiredSession = () => setUser(null);
+    window.addEventListener('auth:expired', handleExpiredSession);
+    return () => window.removeEventListener('auth:expired', handleExpiredSession);
+  }, []);
+
   if (loading) {
-    return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">Loading workspace...</div>;
+    return <div className="app-shell flex min-h-screen items-center justify-center text-slate-100"><div className="loading-orbit" /><span className="ml-4 text-sm text-slate-400">Preparing your workspace</span></div>;
   }
 
   return (
