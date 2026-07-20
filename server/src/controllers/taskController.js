@@ -7,6 +7,12 @@ const getUserWorkspaceIds = async (userId) => {
   return memberships.map((membership) => membership.groupId);
 };
 
+const emitTaskToWorkspace = async (workspaceId, event, task) => {
+  if (!workspaceId) return;
+  const members = await prisma.membership.findMany({ where: { groupId: workspaceId }, select: { userId: true } });
+  for (const member of members) emitToUser(member.userId, event, { task, workspaceId });
+};
+
 const userHasTaskAccess = async (taskId, userId) => {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
@@ -212,7 +218,7 @@ export const createTask = async (req, res, next) => {
         createdBy: { select: { id: true, username: true } },
         issueType: { select: { id: true, name: true, key: true } },
         parent: { select: { id: true, title: true } },
-        project: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true, workspaceId: true } },
       },
     });
 
@@ -275,14 +281,14 @@ export const createTask = async (req, res, next) => {
         createdBy: { select: { id: true, username: true } },
         issueType: { select: { id: true, name: true, key: true } },
         parent: { select: { id: true, title: true } },
-        project: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true, workspaceId: true } },
         labels: true,
         timeEntries: true,
         customFieldValues: { include: { customField: true } },
       },
     });
 
-    emitToUser(req.user.id, 'task-created', { task: fullTask });
+    await emitTaskToWorkspace(normalizedGroupId || fullTask?.project?.workspaceId, 'task-created', fullTask);
     res.status(201).json({ task: fullTask });
   } catch (error) {
     next(error);
@@ -573,6 +579,7 @@ export const updateTask = async (req, res, next) => {
         createdBy: { select: { id: true, username: true } },
         issueType: { select: { id: true, name: true, key: true } },
         parent: { select: { id: true, title: true } },
+        project: { select: { id: true, name: true, workspaceId: true } },
         labels: true,
         timeEntries: true,
         customFieldValues: { include: { customField: true } },
@@ -593,7 +600,7 @@ export const updateTask = async (req, res, next) => {
       });
     }
 
-    emitToUser(req.user.id, 'task-updated', { task });
+    await emitTaskToWorkspace(task?.groupId || task?.project?.workspaceId || existingTask.groupId, 'task-updated', task);
     res.json({ task });
   } catch (error) {
     next(error);

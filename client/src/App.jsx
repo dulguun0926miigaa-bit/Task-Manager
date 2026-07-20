@@ -505,8 +505,8 @@ const DashboardPage = ({ user, onLogout }) => {
       queryClient.invalidateQueries({ queryKey: ['friends'] });
       queryClient.invalidateQueries({ queryKey: ['friendRequests'] });
     });
-    socket.on('task-created', () => queryClient.invalidateQueries({ queryKey: ['tasks'] }));
-    socket.on('task-updated', () => queryClient.invalidateQueries({ queryKey: ['tasks'] }));
+    socket.on('task-created', () => queryClient.refetchQueries({ queryKey: ['tasks'] }));
+    socket.on('task-updated', () => queryClient.refetchQueries({ queryKey: ['tasks'] }));
     socket.on('task-assigned', () => queryClient.invalidateQueries({ queryKey: ['tasks'] }));
     socket.on('message:send', (message) => {
       if (!message || message.type === 'message:new') return;
@@ -698,19 +698,28 @@ const DashboardPage = ({ user, onLogout }) => {
   const respondInvitationMutation = useMutation({
     mutationFn: async ({ notification, action }) => {
       const metadata = getNotificationMetadata(notification);
+      let response;
       if (notification.type === 'WORKSPACE_INVITATION') {
-        await api.post(`/groups/invitations/${metadata.invitationToken}/${action === 'accept' ? 'accept' : 'decline'}`);
+        response = await api.post(`/groups/invitations/${metadata.invitationToken}/${action === 'accept' ? 'accept' : 'decline'}`);
         await api.delete(`/notifications/${notification.id}`);
       } else if (notification.type === 'PROJECT_INVITATION') {
-        await api.post(`/projects/${metadata.projectId}/invitations/respond`, { notificationId: notification.id, action });
+        response = await api.post(`/projects/${metadata.projectId}/invitations/respond`, { notificationId: notification.id, action });
       }
-      return { action };
+      return { action, metadata, response };
     },
-    onSuccess: ({ action }) => {
-      queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      queryClient.invalidateQueries({ queryKey: ['groups'] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['projectMembers'] });
+    onSuccess: async ({ action, metadata }) => {
+      if (action === 'accept' && metadata.workspaceId) {
+        setSelectedWorkspaceId(metadata.workspaceId);
+        setSelectedProjectId(null);
+        setActiveView('workspace');
+      }
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['notifications'] }),
+        queryClient.refetchQueries({ queryKey: ['groups'] }),
+        queryClient.refetchQueries({ queryKey: ['tasks'] }),
+        queryClient.refetchQueries({ queryKey: ['projects'] }),
+        queryClient.refetchQueries({ queryKey: ['projectMembers'] }),
+      ]);
       toast.success(action === 'accept' ? 'Урилгыг зөвшөөрлөө' : 'Урилгыг татгалзлаа');
     },
     onError: (error) => toast.error(error?.response?.data?.message || 'Урилгад хариу өгч чадсангүй'),

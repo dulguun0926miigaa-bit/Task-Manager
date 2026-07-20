@@ -270,8 +270,13 @@ export const acceptGroupInvitation = async (req, res, next) => {
       await tx.invitation.update({ where: { id: invitation.id }, data: { status: 'ACCEPTED' } });
       return created;
     });
-    await ensureWorkspaceChatMembership(invitation.groupId, req.user.id);
-    res.json({ membership });
+    try {
+      await ensureWorkspaceChatMembership(invitation.groupId, req.user.id);
+    } catch (chatError) {
+      console.warn('[GROUP] Workspace accepted but chat membership sync failed:', chatError?.message);
+    }
+    const group = await prisma.group.findUnique({ where: { id: invitation.groupId } });
+    res.json({ membership, group });
   } catch (error) {
     next(error);
   }
