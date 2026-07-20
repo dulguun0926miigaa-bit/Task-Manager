@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { randomUUID } from 'node:crypto';
 
 const getGroupMembership = async (groupId, userId) => prisma.membership.findFirst({ where: { groupId, userId } });
 
@@ -202,23 +203,59 @@ export const inviteToGroup = async (req, res, next) => {
       return res.status(403).json({ message: 'Not allowed' });
     }
 
-    const { email } = req.body;
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const role = ['ADMIN', 'MEMBER'].includes(req.body.role) ? req.body.role : 'MEMBER';
+    if (!email) return res.status(400).json({ message: 'Email is required' });
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
 
-    const existingMembership = await prisma.membership.findFirst({ where: { groupId: req.params.id, userId: user.id } });
-    if (existingMembership) {
+    const existingMembership = user
+      ? await prisma.membership.findFirst({ where: { groupId: req.params.id, userId: user.id } })
+      : null;
+    if (user && existingMembership) {
       return res.status(409).json({ message: 'User already in workspace' });
     }
 
     const invitation = await prisma.invitation.create({
-      data: { groupId: req.params.id, email, status: 'PENDING' },
+      data: {
+        groupId: req.params.id,
+        email,
+        role,
+        token: randomUUID(),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        status: 'PENDING',
+      },
     });
 
-    await addActivity({ userId: req.user.id, groupId: req.params.id, entity: 'member', action: 'invited', details: `Invited ${user.username}` });
+    await addActivity({ userId: req.user.id, groupId: req.params.id, entity: 'member', action: 'invited', details: `Invited ${email}` });
     res.status(201).json({ invitation });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const acceptGroupInvitation = async (req, res, next) => {
+  try {
+    const invitation = await prisma.invitation.findUnique({ where: { token: req.params.token } });
+    if (!invitation || invitation.status !== 'PENDING') return res.status(404).json({ message: 'Invitation not found' });
+    if (!invitation.expiresAt || invitation.expiresAt <= new Date()) {
+      await prisma.invitation.update({ where: { id: invitation.id }, data: { status: 'EXPIRED' } });
+      return res.status(410).json({ message: 'Invitation expired' });
+    }
+    if (req.user.email.toLowerCase() !== invitation.email.toLowerCase()) {
+      return res.status(403).json({ message: 'This invitation belongs to another email address' });
+    }
+
+    const membership = await prisma.$transaction(async (tx) => {
+      const created = await tx.membership.upsert({
+        where: { userId_groupId: { userId: req.user.id, groupId: invitation.groupId } },
+        update: {},
+        create: { userId: req.user.id, groupId: invitation.groupId, role: invitation.role },
+      });
+      await tx.invitation.update({ where: { id: invitation.id }, data: { status: 'ACCEPTED' } });
+      return created;
+    });
+    await ensureWorkspaceChatMembership(invitation.groupId, req.user.id);
+    res.json({ membership });
   } catch (error) {
     next(error);
   }

@@ -247,6 +247,10 @@ const AuthPage = ({ onAuthenticated }) => {
 const DashboardPage = ({ user, onLogout }) => {
   const queryClient = useQueryClient();
   const [activeView, setActiveView] = useState('workspace');
+  const [taskView, setTaskView] = useState('board');
+  const [taskSearch, setTaskSearch] = useState('');
+  const [taskPriorityFilter, setTaskPriorityFilter] = useState('ALL');
+  const [onlyMyTasks, setOnlyMyTasks] = useState(false);
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showProjectModal, setShowProjectModal] = useState(false);
@@ -595,6 +599,21 @@ const DashboardPage = ({ user, onLogout }) => {
     onError: () => toast.error('Could not update task'),
   });
 
+  const moveTaskMutation = useMutation({
+    mutationFn: ({ id, status }) => api.put(`/tasks/${id}`, { status }),
+    onMutate: async ({ id, status }) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks'] });
+      const previousTasks = queryClient.getQueryData(['tasks']);
+      queryClient.setQueryData(['tasks'], (current = []) => current.map((task) => task.id === id ? { ...task, status } : task));
+      return { previousTasks };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousTasks) queryClient.setQueryData(['tasks'], context.previousTasks);
+      toast.error('Task шилжүүлж чадсангүй');
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+  });
+
   const deleteTaskMutation = useMutation({
     mutationFn: (id) => api.delete(`/tasks/${id}`),
     onSuccess: () => {
@@ -838,6 +857,35 @@ const DashboardPage = ({ user, onLogout }) => {
     }
     return tasks.filter((task) => task.groupId === selectedWorkspace?.id);
   }, [tasks, selectedProjectId, selectedWorkspace]);
+
+  const filteredTasks = useMemo(() => visibleTasks
+    .filter((task) => !taskSearch || `${task.title} ${task.description || ''}`.toLowerCase().includes(taskSearch.toLowerCase()))
+    .filter((task) => taskPriorityFilter === 'ALL' || task.priority === taskPriorityFilter)
+    .filter((task) => !onlyMyTasks || task.assignments?.some((assignment) => (assignment.userId || assignment.user?.id) === user.id))
+    .sort((a, b) => {
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return new Date(a.dueDate) - new Date(b.dueDate);
+    }), [visibleTasks, taskSearch, taskPriorityFilter, onlyMyTasks, user.id]);
+
+  const openTaskEditor = (task) => {
+    setTaskForm({
+      title: task.title,
+      description: task.description || '',
+      priority: task.priority,
+      status: task.status,
+      dueDate: task.dueDate ? task.dueDate.slice(0, 10) : '',
+      groupId: task.groupId || '',
+      projectId: task.project?.id || '',
+      issueTypeId: task.issueType?.id || '',
+      parentId: task.parentId || '',
+      privacy: task.privacy || 'PUBLIC',
+      type: task.type || '',
+      assignedUserIds: task.assignments?.map((item) => item.userId || item.user?.id) || [],
+    });
+    setEditingTaskId(task.id);
+    setShowTaskModal(true);
+  };
 
   const workspaceStats = useMemo(() => {
     const workspaceTasks = tasks.filter((task) => task.groupId === selectedWorkspace?.id);
@@ -1102,12 +1150,39 @@ const DashboardPage = ({ user, onLogout }) => {
             </section>
 
             <section className={`feature-panel panel-tasks rounded-3xl border border-slate-800 bg-slate-900 p-4 ${activeView !== 'tasks' ? 'feature-panel-hidden' : ''}`}>
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-semibold">Tasks</h2>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div><h2 className="text-xl font-semibold">Ажлын самбар</h2><p className="text-sm text-slate-400">Ажлуудаа төлөвөөр нь хянаж, чирж шилжүүлнэ.</p></div>
                 <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm" onClick={() => { resetTaskForm(); setShowTaskModal(true); }}>Create task</button>
               </div>
-              <div className="grid gap-3">
-                {visibleTasks.map((task) => (
+              <div className="task-toolbar mb-4">
+                <input aria-label="Task хайх" placeholder="Task хайх…" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
+                <select aria-label="Priority шүүх" value={taskPriorityFilter} onChange={(event) => setTaskPriorityFilter(event.target.value)}>
+                  <option value="ALL">Бүх priority</option><option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option><option value="URGENT">Urgent</option>
+                </select>
+                <button className={onlyMyTasks ? 'is-active' : ''} onClick={() => setOnlyMyTasks((value) => !value)}>Миний ажлууд</button>
+                <div className="task-view-switch"><button className={taskView === 'board' ? 'is-active' : ''} onClick={() => setTaskView('board')}>Самбар</button><button className={taskView === 'list' ? 'is-active' : ''} onClick={() => setTaskView('list')}>Жагсаалт</button></div>
+              </div>
+              {taskView === 'board' ? (
+                <div className="kanban-board">
+                  {[['TODO', 'Хийх'], ['IN_PROGRESS', 'Хийгдэж буй'], ['REVIEW', 'Шалгах'], ['COMPLETED', 'Дууссан']].map(([status, label]) => (
+                    <div key={status} className="kanban-column" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { const taskId = event.dataTransfer.getData('text/task-id'); if (taskId) moveTaskMutation.mutate({ id: taskId, status }); }}>
+                      <div className="kanban-column-header"><span>{label}</span><b>{filteredTasks.filter((task) => task.status === status).length}</b></div>
+                      <div className="kanban-cards">
+                        {filteredTasks.filter((task) => task.status === status).map((task) => (
+                          <article key={task.id} className="kanban-card" draggable onDragStart={(event) => event.dataTransfer.setData('text/task-id', task.id)} onClick={() => openTaskEditor(task)}>
+                            <div className={`priority-line priority-${task.priority?.toLowerCase()}`} />
+                            <h3>{task.title}</h3>
+                            <p>{task.description || 'Тайлбар оруулаагүй'}</p>
+                            <div className="kanban-meta"><span>{task.priority}</span><span>{task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'Хугацаагүй'}</span></div>
+                            <div className="kanban-assignees">{(task.assignments || []).slice(0, 3).map((assignment) => <span key={assignment.userId || assignment.user?.id}>{(assignment.user?.username || 'U').slice(0, 2).toUpperCase()}</span>)}</div>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : <div className="grid gap-3">
+                {filteredTasks.map((task) => (
                   <div key={task.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
                     <div className="flex items-center justify-between">
                       <div>
@@ -1115,24 +1190,7 @@ const DashboardPage = ({ user, onLogout }) => {
                         <p className="text-sm text-slate-400">{task.description || 'No description'}</p>
                       </div>
                       <div className="flex gap-2">
-                        <button className="rounded-lg border border-slate-700 px-2 py-1 text-xs" onClick={() => {
-                          setTaskForm({
-                            title: task.title,
-                            description: task.description || '',
-                            priority: task.priority,
-                            status: task.status,
-                            dueDate: task.dueDate ? task.dueDate.slice(0,10) : '',
-                            groupId: task.groupId || '',
-                            projectId: task.project?.id || '',
-                            issueTypeId: task.issueType?.id || '',
-                            parentId: task.parentId || '',
-                            privacy: task.privacy || 'PUBLIC',
-                            type: task.type || '',
-                            assignedUserIds: task.assignments?.map((item) => item.userId) || [],
-                          });
-                          setEditingTaskId(task.id);
-                          setShowTaskModal(true);
-                        }}>Edit</button>
+                        <button className="rounded-lg border border-slate-700 px-2 py-1 text-xs" onClick={() => openTaskEditor(task)}>Edit</button>
                         <button className="rounded-lg border border-rose-700 px-2 py-1 text-xs text-rose-300" onClick={() => deleteTaskMutation.mutate(task.id)}>Delete</button>
                       </div>
                     </div>
@@ -1145,7 +1203,7 @@ const DashboardPage = ({ user, onLogout }) => {
                     </div>
                   </div>
                 ))}
-              </div>
+              </div>}
             </section>
 
             <section className={`feature-panel panel-chat rounded-3xl border border-slate-800 bg-slate-900 p-4 ${activeView !== 'chat' ? 'feature-panel-hidden' : ''}`}>

@@ -1,0 +1,6 @@
+ALTER TABLE "invitations"
+ADD COLUMN IF NOT EXISTS "role" TEXT NOT NULL DEFAULT 'MEMBER',
+ADD COLUMN IF NOT EXISTS "token" TEXT,
+ADD COLUMN IF NOT EXISTS "expiresAt" TIMESTAMP(3);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "invitations_token_key" ON "invitations"("token");

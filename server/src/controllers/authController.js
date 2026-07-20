@@ -5,6 +5,15 @@ import { normalizeEmail } from '../utils/authUtils.js';
 import { getCookieOptions } from '../utils/cookies.js';
 import { getRefreshTokenFromRequest } from '../utils/authRequest.js';
 
+const getActiveWorkspaceClaims = async (userId) => {
+  const membership = await prisma.membership.findFirst({
+    where: { userId },
+    orderBy: { joinedAt: 'asc' },
+    select: { groupId: true, role: true },
+  });
+  return membership ? { workspaceId: membership.groupId, role: membership.role } : {};
+};
+
 export const register = async (req, res, next) => {
   try {
     const { username, email, password } = req.body;
@@ -45,7 +54,7 @@ export const login = async (req, res, next) => {
     }
 
     console.log('[AUTH] Login successful for:', normalizedEmail);
-    const accessToken = signAccessToken({ id: user.id, email: user.email });
+    const accessToken = signAccessToken({ id: user.id, email: user.email, ...(await getActiveWorkspaceClaims(user.id)) });
     const refreshToken = signRefreshToken({ id: user.id });
 
     await prisma.user.update({ where: { id: user.id }, data: { refreshToken } });
@@ -89,7 +98,7 @@ export const refresh = async (req, res, next) => {
     }
 
     console.log('[AUTH] Refresh successful for userId:', payload.id);
-    const accessToken = signAccessToken({ id: user.id, email: user.email });
+    const accessToken = signAccessToken({ id: user.id, email: user.email, ...(await getActiveWorkspaceClaims(user.id)) });
     res.cookie('accessToken', accessToken, {
       ...getCookieOptions(),
       maxAge: 15 * 60 * 1000,

@@ -512,6 +512,9 @@ model Invitation {
   id        String   @id @default(cuid())
   groupId   String
   email     String
+  role      String   @default("MEMBER")
+  token     String?  @unique
+  expiresAt DateTime?
   status    String   @default("PENDING")
   createdAt DateTime @default(now())
   group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
