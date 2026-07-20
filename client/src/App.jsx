@@ -246,6 +246,7 @@ const AuthPage = ({ onAuthenticated }) => {
 
 const DashboardPage = ({ user, onLogout }) => {
   const queryClient = useQueryClient();
+  const [activeView, setActiveView] = useState('workspace');
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showProjectModal, setShowProjectModal] = useState(false);
@@ -857,7 +858,7 @@ const DashboardPage = ({ user, onLogout }) => {
 
   return (
     <div className="app-shell min-h-screen p-3 text-slate-100 sm:p-4 md:p-6">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4">
         <header className="app-header rounded-3xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
@@ -908,9 +909,23 @@ const DashboardPage = ({ user, onLogout }) => {
               <button type="button" className="rounded-xl bg-cyan-500 px-3 py-2 font-semibold text-slate-950" onClick={handleLogout}>Logout</button>
             </div>
           </div>
+          <nav className="feature-nav mt-4" aria-label="Dashboard sections">
+            {[
+              ['workspace', 'Overview', '⌂'],
+              ['tasks', 'Tasks', '✓'],
+              ['chat', 'Messages', '✦'],
+              ['people', 'People', '◎'],
+              ['inbox', 'Inbox', '◌'],
+            ].map(([view, label, icon]) => (
+              <button key={view} className={activeView === view ? 'is-active' : ''} onClick={() => setActiveView(view)}>
+                <span>{icon}</span>{label}
+                {view === 'inbox' && (requests.length + unreadNotificationCount) > 0 && <b>{requests.length + unreadNotificationCount}</b>}
+              </button>
+            ))}
+          </nav>
         </header>
 
-        <div className="dashboard-grid grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)_320px]">
+        <div className={`dashboard-grid view-${activeView} grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)_300px]`}>
           <aside className="dashboard-sidebar space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-4">
             <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
               <p className="text-sm text-slate-400">Overview</p>
@@ -947,9 +962,9 @@ const DashboardPage = ({ user, onLogout }) => {
             </div>
           </aside>
 
-          <main className="space-y-6">
+          <main className="dashboard-content space-y-4">
             {selectedOrganizationDetails && (
-              <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+              <section className={`feature-panel panel-workspace rounded-3xl border border-slate-800 bg-slate-900 p-4 ${activeView !== 'workspace' ? 'feature-panel-hidden' : ''}`}>
                 <div className="mb-4 flex items-center justify-between">
                   <div>
                     <h2 className="text-xl font-semibold">Organization Hub</h2>
@@ -1002,7 +1017,7 @@ const DashboardPage = ({ user, onLogout }) => {
                 </div>
               </section>
             )}
-            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+            <section className={`feature-panel panel-workspace rounded-3xl border border-slate-800 bg-slate-900 p-4 ${activeView !== 'workspace' ? 'feature-panel-hidden' : ''}`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Workspace Hub</h2>
                 <div className="flex gap-2">
@@ -1086,7 +1101,7 @@ const DashboardPage = ({ user, onLogout }) => {
               )}
             </section>
 
-            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+            <section className={`feature-panel panel-tasks rounded-3xl border border-slate-800 bg-slate-900 p-4 ${activeView !== 'tasks' ? 'feature-panel-hidden' : ''}`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Tasks</h2>
                 <button className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm" onClick={() => { resetTaskForm(); setShowTaskModal(true); }}>Create task</button>
@@ -1133,7 +1148,7 @@ const DashboardPage = ({ user, onLogout }) => {
               </div>
             </section>
 
-            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+            <section className={`feature-panel panel-chat rounded-3xl border border-slate-800 bg-slate-900 p-4 ${activeView !== 'chat' ? 'feature-panel-hidden' : ''}`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Workspace chat</h2>
                 <div className="flex gap-2">
@@ -1175,7 +1190,7 @@ const DashboardPage = ({ user, onLogout }) => {
               )}
             </section>
 
-            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+            <section className={`feature-panel panel-people rounded-3xl border border-slate-800 bg-slate-900 p-4 ${activeView !== 'people' ? 'feature-panel-hidden' : ''}`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Discover People</h2>
               </div>
@@ -1211,7 +1226,7 @@ const DashboardPage = ({ user, onLogout }) => {
               </div>
             </section>
 
-            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+            <section className={`feature-panel panel-chat rounded-3xl border border-slate-800 bg-slate-900 p-4 ${activeView !== 'chat' ? 'feature-panel-hidden' : ''}`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Project chat</h2>
                 <span className="text-sm text-slate-400">{selectedProject?.name || 'Project'}</span>
@@ -1265,7 +1280,7 @@ const DashboardPage = ({ user, onLogout }) => {
               </div>
             </section>
 
-            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
+            <section className={`feature-panel panel-people rounded-3xl border border-slate-800 bg-slate-900 p-4 ${activeView !== 'people' ? 'feature-panel-hidden' : ''}`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Friends</h2>
               </div>
@@ -1289,7 +1304,7 @@ const DashboardPage = ({ user, onLogout }) => {
             </section>
           </main>
 
-          <aside className="space-y-4">
+          <aside className={`dashboard-inbox space-y-4 ${activeView !== 'inbox' ? 'inbox-collapsed' : ''}`}>
             <section className="rounded-3xl border border-slate-800 bg-slate-900 p-4">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Incoming requests</h2>
