@@ -270,21 +270,43 @@ export const addProjectMember = async (req, res, next) => {
       return res.status(409).json({ message: 'User already a member' });
     }
 
-    const membership = await prisma.projectMembership.create({ data: { projectId, userId, role } });
-    await addActivity({ userId: req.user.id, projectId, entity: 'project', action: 'member_added', details: `Member ${userId} was added` });
-    await createProjectNotification({
+    const notification = await createProjectNotification({
       userId,
-      type: 'project:added',
-      title: 'Added to project',
-      message: 'You were added to a project',
+      type: 'PROJECT_INVITATION',
+      title: 'Project invitation',
+      message: `${req.user.username} invited you to a project`,
       projectId,
       actorId: req.user.id,
-      metadata: { projectId },
+      metadata: { projectId, role },
     });
-    res.status(201).json({ membership });
+    await addActivity({ userId: req.user.id, projectId, entity: 'project', action: 'member_invited', details: `Member ${userId} was invited` });
+    res.status(201).json({ invitation: notification });
   } catch (error) {
     next(error);
   }
+};
+
+export const respondToProjectInvitation = async (req, res, next) => {
+  try {
+    const { notificationId, action } = req.body;
+    if (!['accept', 'decline'].includes(action)) return res.status(400).json({ message: 'Invalid action' });
+    const notification = await prisma.notification.findUnique({ where: { id: notificationId } });
+    if (!notification || notification.userId !== req.user.id || notification.type !== 'PROJECT_INVITATION') return res.status(404).json({ message: 'Invitation not found' });
+    let metadata = {};
+    try { metadata = JSON.parse(notification.metadata || '{}'); } catch { metadata = {}; }
+    if (metadata.projectId !== req.params.id) return res.status(400).json({ message: 'Invalid invitation' });
+
+    let membership = null;
+    if (action === 'accept') {
+      membership = await prisma.projectMembership.upsert({
+        where: { userId_projectId: { userId: req.user.id, projectId: req.params.id } },
+        update: {},
+        create: { userId: req.user.id, projectId: req.params.id, role: metadata.role || 'MEMBER' },
+      });
+    }
+    await prisma.notification.delete({ where: { id: notification.id } });
+    res.json({ membership, message: action === 'accept' ? 'Invitation accepted' : 'Invitation declined' });
+  } catch (error) { next(error); }
 };
 
 export const updateProjectMember = async (req, res, next) => {

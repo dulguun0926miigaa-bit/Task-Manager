@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { randomUUID } from 'node:crypto';
+import { emitToUser } from '../services/socketService.js';
 
 const getGroupMembership = async (groupId, userId) => prisma.membership.findFirst({ where: { groupId, userId } });
 
@@ -226,6 +227,21 @@ export const inviteToGroup = async (req, res, next) => {
       },
     });
 
+    if (user) {
+      const group = await prisma.group.findUnique({ where: { id: req.params.id }, select: { name: true } });
+      const notification = await prisma.notification.create({
+        data: {
+          userId: user.id,
+          type: 'WORKSPACE_INVITATION',
+          title: 'Workspace invitation',
+          message: `${req.user.username} invited you to ${group?.name || 'a workspace'}`,
+          actorId: req.user.id,
+          metadata: JSON.stringify({ invitationToken: invitation.token, workspaceId: req.params.id, role }),
+        },
+      });
+      emitToUser(user.id, 'notification:new', { ...notification, metadata: { invitationToken: invitation.token, workspaceId: req.params.id, role } });
+    }
+
     await addActivity({ userId: req.user.id, groupId: req.params.id, entity: 'member', action: 'invited', details: `Invited ${email}` });
     res.status(201).json({ invitation });
   } catch (error) {
@@ -259,6 +275,16 @@ export const acceptGroupInvitation = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+export const declineGroupInvitation = async (req, res, next) => {
+  try {
+    const invitation = await prisma.invitation.findUnique({ where: { token: req.params.token } });
+    if (!invitation || invitation.status !== 'PENDING') return res.status(404).json({ message: 'Invitation not found' });
+    if (req.user.email.toLowerCase() !== invitation.email.toLowerCase()) return res.status(403).json({ message: 'Not allowed' });
+    await prisma.invitation.update({ where: { id: invitation.id }, data: { status: 'DECLINED' } });
+    res.json({ message: 'Invitation declined' });
+  } catch (error) { next(error); }
 };
 
 export const addMemberToGroup = async (req, res, next) => {

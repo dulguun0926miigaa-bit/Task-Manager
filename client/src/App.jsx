@@ -146,6 +146,12 @@ const getAuthErrorMessage = (error) => {
   return 'Unable to complete the request. Please try again.';
 };
 
+const getNotificationMetadata = (notification) => {
+  if (!notification?.metadata) return {};
+  if (typeof notification.metadata === 'object') return notification.metadata;
+  try { return JSON.parse(notification.metadata); } catch { return {}; }
+};
+
 const AuthPage = ({ onAuthenticated }) => {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ username: '', email: '', password: '' });
@@ -689,6 +695,27 @@ const DashboardPage = ({ user, onLogout }) => {
     },
   });
 
+  const respondInvitationMutation = useMutation({
+    mutationFn: async ({ notification, action }) => {
+      const metadata = getNotificationMetadata(notification);
+      if (notification.type === 'WORKSPACE_INVITATION') {
+        await api.post(`/groups/invitations/${metadata.invitationToken}/${action === 'accept' ? 'accept' : 'decline'}`);
+        await api.delete(`/notifications/${notification.id}`);
+      } else if (notification.type === 'PROJECT_INVITATION') {
+        await api.post(`/projects/${metadata.projectId}/invitations/respond`, { notificationId: notification.id, action });
+      }
+      return { action };
+    },
+    onSuccess: ({ action }) => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['projectMembers'] });
+      toast.success(action === 'accept' ? 'Урилгыг зөвшөөрлөө' : 'Урилгыг татгалзлаа');
+    },
+    onError: (error) => toast.error(error?.response?.data?.message || 'Урилгад хариу өгч чадсангүй'),
+  });
+
   const updateWorkspaceMutation = useMutation({
     mutationFn: (payload) => api.put(`/groups/${selectedWorkspaceId}`, payload),
     onSuccess: () => {
@@ -960,6 +987,12 @@ const DashboardPage = ({ user, onLogout }) => {
                             <div>
                               <p className="font-medium">{item.title}</p>
                               <p className="text-slate-400">{item.message}</p>
+                              {['WORKSPACE_INVITATION', 'PROJECT_INVITATION'].includes(item.type) && (
+                                <div className="mt-2 flex gap-2">
+                                  <button className="rounded-lg bg-emerald-500/20 px-2 py-1 text-xs text-emerald-300" onClick={() => respondInvitationMutation.mutate({ notification: item, action: 'accept' })}>Accept</button>
+                                  <button className="rounded-lg bg-rose-500/20 px-2 py-1 text-xs text-rose-300" onClick={() => respondInvitationMutation.mutate({ notification: item, action: 'decline' })}>Decline</button>
+                                </div>
+                              )}
                             </div>
                             <div className="flex gap-1">
                               {!item.isRead && <button className="text-xs text-cyan-300" onClick={() => markSingleNotificationReadMutation.mutate(item.id)}>Read</button>}
@@ -1416,6 +1449,12 @@ const DashboardPage = ({ user, onLogout }) => {
                   <div key={item.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-3 text-sm">
                     <p className="font-medium">{item.title}</p>
                     <p className="text-slate-400">{item.message}</p>
+                    {['WORKSPACE_INVITATION', 'PROJECT_INVITATION'].includes(item.type) && (
+                      <div className="mt-3 flex gap-2">
+                        <button className="rounded-lg bg-emerald-500/20 px-3 py-1.5 text-xs text-emerald-300" onClick={() => respondInvitationMutation.mutate({ notification: item, action: 'accept' })}>Accept</button>
+                        <button className="rounded-lg bg-rose-500/20 px-3 py-1.5 text-xs text-rose-300" onClick={() => respondInvitationMutation.mutate({ notification: item, action: 'decline' })}>Decline</button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

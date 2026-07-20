@@ -21,6 +21,7 @@ import {
   toggleFavoriteProject,
   updateProject,
   updateProjectMember,
+  respondToProjectInvitation,
 } from '../controllers/projectController.js';
 
 const router = Router();
@@ -33,6 +34,7 @@ router.post('/:id/archive', authenticate, archiveProject);
 router.post('/:id/restore', authenticate, restoreProject);
 router.post('/:id/favorite', authenticate, toggleFavoriteProject);
 router.post('/:id/members', authenticate, addProjectMember);
+router.post('/:id/invitations/respond', authenticate, respondToProjectInvitation);
 router.get('/:id/members', authenticate, listProjectMembers);
 router.put('/:id/members/:memberId', authenticate, updateProjectMember);
 router.delete('/:id/members/:memberId', authenticate, removeProjectMember);
