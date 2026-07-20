@@ -41,7 +41,7 @@ const ensureForeignKey = async ({ tableName, constraintName, createSql }) => {
     SELECT constraint_name
     FROM information_schema.table_constraints
     WHERE table_name = ${tableName}
-      AND constraint_name = ${constraintName}
+      AND lower(constraint_name) = lower(${constraintName})
       AND constraint_type = 'FOREIGN KEY'
   `;
 
@@ -52,7 +52,7 @@ const ensureForeignKey = async ({ tableName, constraintName, createSql }) => {
       await prisma.$executeRawUnsafe(createSql);
       console.log(`[DB FIX] Foreign key ${constraintName} created successfully on ${tableName}`);
     } catch (createError) {
-      if (createError?.message?.includes('already exists')) {
+      if (createError?.message?.toLowerCase().includes('already exists')) {
         console.log(`[DB FIX] Foreign key ${constraintName} already exists on ${tableName}`);
       } else {
         throw createError;
