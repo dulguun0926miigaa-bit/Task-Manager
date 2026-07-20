@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
+import { verifyAccessToken } from '../utils/jwt.js';
 
 const defaultOrigins = [
   'http://localhost:5173',
@@ -10,6 +11,10 @@ const defaultOrigins = [
   'http://localhost:5177',
   'http://localhost:3000',
   'http://localhost:3001',
+  'https://task-manager-self-six-61.vercel.app',
+  'https://task-manager-git-main-duk-ochir.vercel.app',
+  'https://task-manager-4ackvtpa2-duk-ochir.vercel.app',
+  'https://task-manager-jcd2rv42b-duk-ochir.vercel.app',
 ];
 
 const allowedOrigins = Array.from(new Set([...
@@ -36,17 +41,31 @@ export const initSocket = (server) => {
     cors: { origin: allowedOrigins, methods: ['GET', 'POST'], credentials: true },
   });
 
+  io.use((socket, next) => {
+    try {
+      const rawToken = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.replace(/^Bearer\s+/i, '');
+      if (!rawToken) return next(new Error('Authentication required'));
+      const payload = verifyAccessToken(rawToken);
+      socket.data.userId = payload.id;
+      return next();
+    } catch {
+      return next(new Error('Invalid token'));
+    }
+  });
+
   io.on('connection', (socket) => {
+    const authenticatedUserId = socket.data.userId;
+    onlineUsers.set(authenticatedUserId, socket.id);
+    socket.join(`user:${authenticatedUserId}`);
+    io.emit('user:online', { userId: authenticatedUserId });
+    syncOnlineUsers(io.engine?.app);
+    broadcastPresence();
+
     socket.on('join-room', (roomId) => socket.join(roomId));
     socket.on('leave-room', (roomId) => socket.leave(roomId));
-    socket.on('authenticate', async ({ userId }) => {
-      if (!userId) return;
-      onlineUsers.set(userId, socket.id);
-      socket.join(`user:${userId}`);
+    socket.on('authenticate', async () => {
+      const userId = socket.data.userId;
       socket.emit('presence:update', Array.from(onlineUsers.keys()));
-      io.emit('user:online', { userId });
-      syncOnlineUsers(io.engine?.app);
-      broadcastPresence();
     });
     socket.on('disconnect', () => {
       const userId = Array.from(onlineUsers.entries()).find(([, id]) => id === socket.id)?.[0];

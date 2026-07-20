@@ -93,7 +93,7 @@ export const sendConnectionRequest = async ({ senderId, receiverId }) => {
     include: { sender: { select: { id: true, username: true, avatar: true } } },
   });
 
-  await prisma.notification.create({
+  const notification = await prisma.notification.create({
     data: {
       userId: receiverId,
       type: 'FRIEND_REQUEST',
@@ -104,7 +104,7 @@ export const sendConnectionRequest = async ({ senderId, receiverId }) => {
   });
 
   emitToUser(receiverId, 'friend-request', { request });
-  emitToUser(receiverId, 'notification:new', { title: 'New friend request', message: `${request.sender.username} sent you a friend request` });
+  emitToUser(receiverId, 'notification:new', notification);
 
   return request;
 };
@@ -121,18 +121,19 @@ export const respondToConnectionRequest = async ({ requestId, responderId, actio
       prisma.friendship.create({ data: { userAId: responderId, userBId: request.senderId } }),
     ]);
 
-    await prisma.notification.create({
+    const responder = await prisma.user.findUnique({ where: { id: responderId }, select: { username: true } });
+    const notification = await prisma.notification.create({
       data: {
         userId: request.senderId,
         type: 'FRIEND_ACCEPTED',
         title: 'Friend request accepted',
-        message: `${request.receiverId} accepted your friend request`,
+        message: `${responder?.username || 'A user'} accepted your friend request`,
         actorId: responderId,
       },
     });
 
     emitToUser(request.senderId, 'friend-accepted', { message: 'accepted' });
-    emitToUser(request.senderId, 'notification:new', { title: 'Friend request accepted', message: `${request.receiverId} accepted your friend request` });
+    emitToUser(request.senderId, 'notification:new', notification);
     return { message: 'Request accepted' };
   }
 

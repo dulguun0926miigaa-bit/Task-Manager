@@ -457,7 +457,14 @@ const DashboardPage = ({ user, onLogout }) => {
 
   useEffect(() => {
     const socketUrl = getSocketUrl();
-    const socket = io(socketUrl, { transports: ['websocket', 'polling'] });
+    const socket = io(socketUrl, {
+      transports: ['websocket', 'polling'],
+      auth: { token: getStoredToken() },
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+    });
     socketRef.current = socket;
     socket.on('connect', () => setSocketConnected(true));
     socket.on('disconnect', () => setSocketConnected(false));
@@ -466,6 +473,11 @@ const DashboardPage = ({ user, onLogout }) => {
     socket.emit('join-room', `user:${user.id}`);
     socket.on('notification:new', (payload) => {
       toast.success(payload.title || 'New notification');
+      queryClient.setQueryData(['notifications'], (current) => {
+        if (!current || !payload?.id) return current;
+        if (current.notifications?.some((item) => item.id === payload.id)) return current;
+        return { notifications: [payload, ...(current.notifications || [])], unreadCount: (current.unreadCount || 0) + 1 };
+      });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     });
     socket.on('notification:update', () => {
@@ -477,10 +489,13 @@ const DashboardPage = ({ user, onLogout }) => {
     socket.on('notification:read', () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     });
-    socket.on('friend-request', () => {
+    socket.on('friend-request', ({ request }) => {
+      if (request) queryClient.setQueryData(['friendRequests'], (current = []) => current.some((item) => item.id === request.id) ? current : [request, ...current]);
+      toast.success(`${request?.sender?.username || 'Хэрэглэгч'} найзын хүсэлт илгээлээ`);
       queryClient.invalidateQueries({ queryKey: ['friendRequests'] });
     });
     socket.on('friend-accepted', () => {
+      toast.success('Таны найзын хүсэлтийг зөвшөөрлөө');
       queryClient.invalidateQueries({ queryKey: ['friends'] });
       queryClient.invalidateQueries({ queryKey: ['friendRequests'] });
     });
