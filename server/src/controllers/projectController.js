@@ -76,9 +76,9 @@ export const createProject = async (req, res, next) => {
     const { workspaceId, name, key, icon, description, color, visibility, favorite, settings } = req.body;
     console.log('[PROJECT] Create attempt:', { workspaceId, name, key, userId: req.user.id });
     
-    if (!workspaceId || !name || !key) {
+    if (!workspaceId || !name) {
       console.log('[PROJECT] Missing required fields:', { workspaceId, name, key });
-      return res.status(400).json({ message: 'workspaceId, name, and key are required' });
+      return res.status(400).json({ message: 'workspaceId and name are required' });
     }
 
     const membership = await getWorkspaceMembership(workspaceId, req.user.id);

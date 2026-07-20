@@ -11,9 +11,18 @@ const normalizePayload = (message) => ({
 });
 
 const ensureChatRoom = async ({ workspaceId, projectId, name, type }) => {
-  let room = await prisma.chatRoom.findFirst({
-    where: type === 'WORKSPACE' ? { workspaceId } : { projectId },
-  });
+  let criteria;
+  if (type === 'WORKSPACE') {
+    criteria = { workspaceId };
+  } else if (type === 'PROJECT') {
+    criteria = { projectId };
+  } else if (type === 'PRIVATE') {
+    criteria = { type: 'PRIVATE', name };
+  } else {
+    throw new Error(`Invalid chat room type: ${type}`);
+  }
+
+  let room = await prisma.chatRoom.findFirst({ where: criteria });
 
   if (!room) {
     room = await prisma.chatRoom.create({
@@ -252,20 +261,29 @@ export const stopTypingChatMessage = async (req, res, next) => {
 
 export const getChatRooms = async (req, res, next) => {
   try {
+    const userId = req.user?.id;
+    console.log('[CHATROOM] getChatRooms request', { userId });
+
+    const workspaceMemberships = await prisma.membership.findMany({ where: { userId }, select: { groupId: true } });
+    const projectMemberships = await prisma.projectMembership.findMany({ where: { userId }, select: { projectId: true } });
+    const workspaceIds = workspaceMemberships.map((membership) => membership.groupId);
+    const projectIds = projectMemberships.map((membership) => membership.projectId);
+
     const rooms = await prisma.chatRoom.findMany({
       where: {
         OR: [
-          { workspaceId: { not: null } },
-          { projectId: { not: null } },
-          { type: 'PRIVATE' },
-        ],
-        members: { some: { userId: req.user.id } },
+          { members: { some: { userId } } },
+          workspaceIds.length ? { workspaceId: { in: workspaceIds } } : undefined,
+          projectIds.length ? { projectId: { in: projectIds } } : undefined,
+        ].filter(Boolean),
       },
       include: { members: true },
       orderBy: { createdAt: 'asc' },
     });
+
     res.json({ rooms });
   } catch (error) {
+    console.error('[CHATROOM] getChatRooms error', { userId: req.user?.id, message: error?.message });
     next(error);
   }
 };
@@ -341,7 +359,7 @@ export const createProjectChatRoom = async (req, res, next) => {
       await ensureChatMember(room.id, member.userId);
     }
 
-    emitToRoom(room.id, 'workspace:joined', { projectId });
+    emitToRoom(room.id, 'project:joined', { projectId });
     res.status(201).json({ room });
   } catch (error) {
     next(error);

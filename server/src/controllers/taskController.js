@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { emitToUser } from '../services/socketService.js';
-import { createProjectNotification } from '../services/projectService.js';
+import { createProjectNotification, userHasProjectAccess } from '../services/projectService.js';
 
 const getUserWorkspaceIds = async (userId) => {
   const memberships = await prisma.membership.findMany({ where: { userId }, select: { groupId: true } });
@@ -119,6 +119,18 @@ export const createTask = async (req, res, next) => {
       resolution,
     } = req.body;
 
+    console.log('[TASK] createTask request', {
+      userId: req.user?.id,
+      title,
+      groupId,
+      projectId,
+      issueTypeId,
+    });
+
+    if (!title || !String(title).trim()) {
+      return res.status(400).json({ message: 'Task title is required' });
+    }
+
     const normalizedGroupId = groupId && String(groupId).trim() ? groupId : null;
     let normalizedProjectId = projectId && String(projectId).trim() ? projectId : null;
     const normalizedIssueTypeId = issueTypeId && String(issueTypeId).trim() ? issueTypeId : null;
@@ -131,6 +143,17 @@ export const createTask = async (req, res, next) => {
       return res.status(401).json({ message: 'Authenticated user not found' });
     }
 
+    if (normalizedGroupId) {
+      const membership = await prisma.membership.findFirst({ where: { groupId: normalizedGroupId, userId: req.user.id } });
+      if (!membership) {
+        return res.status(403).json({ message: 'Not allowed to add tasks to this workspace' });
+      }
+    }
+
+    if (normalizedProjectId && !(await userHasProjectAccess(normalizedProjectId, req.user.id))) {
+      return res.status(403).json({ message: 'Not allowed to add tasks to this project' });
+    }
+
     if (normalizedIssueTypeId) {
       const issueType = await prisma.issueType.findUnique({ where: { id: normalizedIssueTypeId } });
       if (!issueType) {
@@ -140,6 +163,13 @@ export const createTask = async (req, res, next) => {
         return res.status(400).json({ message: 'Issue type does not belong to the selected project' });
       }
       normalizedProjectId = normalizedProjectId || issueType.projectId;
+    }
+
+    if (normalizedProjectId && normalizedGroupId) {
+      const project = await prisma.project.findUnique({ where: { id: normalizedProjectId }, select: { workspaceId: true } });
+      if (project && project.workspaceId !== normalizedGroupId) {
+        return res.status(400).json({ message: 'Project does not belong to the selected workspace' });
+      }
     }
 
     if (normalizedParentId) {
@@ -426,6 +456,10 @@ export const updateTask = async (req, res, next) => {
 
     if (!existingTask) {
       return res.status(404).json({ message: 'Task not found' });
+    }
+
+    if (!(await userHasTaskAccess(taskId, req.user.id))) {
+      return res.status(403).json({ message: 'Not allowed' });
     }
 
     const payload = {};

@@ -15,6 +15,29 @@ const addActivity = async ({ userId, groupId, entity, action, details }) => {
   });
 };
 
+const ensureWorkspaceChatRoom = async (groupId, workspaceName) => {
+  let room = await prisma.chatRoom.findFirst({ where: { workspaceId: groupId } });
+  if (!room) {
+    room = await prisma.chatRoom.create({
+      data: {
+        type: 'WORKSPACE',
+        workspaceId: groupId,
+        name: `${workspaceName || 'Workspace'} Chat`,
+      },
+    });
+  }
+  return room;
+};
+
+const ensureWorkspaceChatMembership = async (groupId, userId) => {
+  const room = await ensureWorkspaceChatRoom(groupId);
+  await prisma.chatMember.upsert({
+    where: { chatRoomId_userId: { chatRoomId: room.id, userId } },
+    update: {},
+    create: { chatRoomId: room.id, userId, role: 'MEMBER' },
+  });
+};
+
 export const createGroup = async (req, res, next) => {
   try {
     const { name, description, privacy, image, organizationId } = req.body;
@@ -38,6 +61,22 @@ export const createGroup = async (req, res, next) => {
       include: { memberships: true, owner: { select: { id: true, username: true } } },
     });
 
+    const chatRoom = await prisma.chatRoom.create({
+      data: {
+        type: 'WORKSPACE',
+        workspaceId: group.id,
+        name: `${name} Workspace Chat`,
+      },
+    });
+
+    await prisma.chatMember.create({
+      data: {
+        chatRoomId: chatRoom.id,
+        userId: req.user.id,
+        role: 'MEMBER',
+      },
+    });
+
     await addActivity({ userId: req.user.id, groupId: group.id, entity: 'workspace', action: 'created', details: `Workspace ${name} was created` });
     res.status(201).json({ group });
   } catch (error) {
@@ -47,8 +86,15 @@ export const createGroup = async (req, res, next) => {
 
 export const getGroups = async (req, res, next) => {
   try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: 'Authentication required' });
+
+    const membershipRows = await prisma.membership.findMany({ where: { userId }, select: { groupId: true } });
+    const groupIds = membershipRows.map((row) => row.groupId);
+    if (groupIds.length === 0) return res.json({ groups: [] });
+
     const groups = await prisma.group.findMany({
-      where: { memberships: { some: { userId: req.user.id } } },
+      where: { id: { in: groupIds } },
       include: {
         memberships: true,
         owner: { select: { id: true, username: true } },
@@ -58,24 +104,43 @@ export const getGroups = async (req, res, next) => {
     });
     res.json({ groups });
   } catch (error) {
+    console.error('[GROUP] getGroups error', { userId: req.user?.id, message: error?.message });
     next(error);
   }
 };
 
 export const getGroupById = async (req, res, next) => {
   try {
-    const group = await prisma.group.findFirst({
-      where: { id: req.params.id, memberships: { some: { userId: req.user.id } } },
+    const groupId = req.params.id;
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: 'Authentication required' });
+
+    console.log('[GROUP] getGroupById request', { groupId, userId });
+
+    const membership = await prisma.membership.findFirst({ where: { groupId, userId } });
+    if (!membership) return res.status(404).json({ message: 'Workspace not found' });
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
       include: {
         memberships: { include: { user: { select: { id: true, username: true, email: true, avatar: true } } } },
         owner: { select: { id: true, username: true, email: true, avatar: true } },
-        tasks: true,
-        activityLogs: { orderBy: { createdAt: 'desc' }, take: 20, include: { user: { select: { id: true, username: true, avatar: true } } } },
+        tasks: {
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, title: true, status: true, priority: true, dueDate: true, createdById: true, projectId: true, groupId: true, isArchived: true },
+        },
+        activityLogs: {
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          include: { user: { select: { id: true, username: true, avatar: true } } },
+        },
       },
     });
+
     if (!group) return res.status(404).json({ message: 'Workspace not found' });
     res.json({ group });
   } catch (error) {
+    console.error('[GROUP] getGroupById error', { groupId: req.params.id, userId: req.user?.id, message: error?.message });
     next(error);
   }
 };
@@ -173,6 +238,7 @@ export const addMemberToGroup = async (req, res, next) => {
     }
 
     const newMembership = await prisma.membership.create({ data: { groupId: req.params.id, userId, role: 'MEMBER' } });
+    await ensureWorkspaceChatMembership(req.params.id, userId);
     await addActivity({ userId: req.user.id, groupId: req.params.id, entity: 'member', action: 'added', details: 'Added a new member' });
     res.status(201).json({ membership: newMembership });
   } catch (error) {
