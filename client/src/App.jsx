@@ -61,6 +61,7 @@ api.interceptors.request.use((config) => {
 
 let isRefreshing = false;
 let refreshQueue = [];
+let authSessionExpired = false;
 
 const refreshAccessToken = async () => {
   if (isRefreshing) {
@@ -81,6 +82,7 @@ const refreshAccessToken = async () => {
     refreshQueue = [];
     return token;
   } catch (error) {
+    authSessionExpired = true;
     clearStoredToken();
     delete api.defaults.headers.common.Authorization;
     refreshQueue.forEach((resolve) => resolve(null));
@@ -95,7 +97,7 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config || {};
-    const shouldRetry = error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/refresh') && !originalRequest.url?.includes('/auth/login');
+    const shouldRetry = error.response?.status === 401 && !authSessionExpired && !originalRequest._retry && !originalRequest.url?.includes('/auth/refresh') && !originalRequest.url?.includes('/auth/login');
 
     if (!shouldRetry) {
       return Promise.reject(error);
@@ -158,6 +160,7 @@ const AuthPage = ({ onAuthenticated }) => {
   const loginMutation = useMutation({
     mutationFn: (payload) => api.post('/auth/login', payload),
     onSuccess: (res) => {
+      authSessionExpired = false;
       const token = res.data.accessToken;
       const refreshToken = res.data.refreshToken;
       setStoredToken(token, rememberMe);
