@@ -20,37 +20,39 @@ import { errorHandler } from './middlewares/errorHandler.js';
 export const app = express();
 
 app.use(helmet());
+const defaultOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:5176',
+  'http://localhost:5177',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://task-manager-git-main-duk-ochir.vercel.app',
+  'https://task-manager-4ackvtpa2-duk-ochir.vercel.app',
+  'https://task-manager-self-six-61.vercel.app',
+  'https://task-manager-jcd2rv42b-duk-ochir.vercel.app',
+];
+
+const allowedOrigins = Array.from(new Set([
+  ...defaultOrigins,
+  env.clientUrl,
+  ...env.allowedOrigins,
+]));
+
 app.use(
   cors({
-    origin: (origin, callback) => {
-      const defaultOrigins = [
-        'http://localhost:5173',
-        'http://localhost:5174',
-        'http://localhost:5175',
-        'http://localhost:5176',
-        'http://localhost:5177',
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'https://task-manager-git-main-duk-ochir.vercel.app',
-        'https://task-manager-4ackvtpa2-duk-ochir.vercel.app',
-        'https://task-manager-self-six-61.vercel.app',
-        'https://task-manager-jcd2rv42b-duk-ochir.vercel.app',
-      ];
-
-      const allowedOrigins = Array.from(new Set([
-        ...defaultOrigins,
-        env.clientUrl,
-        ...env.allowedOrigins,
-      ]));
-
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.log('Blocked by CORS:', origin);
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
+    origin: allowedOrigins,
     credentials: true,
+    optionsSuccessStatus: 200,
+  })
+);
+app.options(
+  '*',
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+    optionsSuccessStatus: 200,
   })
 );
 app.use(morgan('dev'));
