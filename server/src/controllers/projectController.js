@@ -18,6 +18,21 @@ const addActivity = async ({ userId, projectId, entity, action, details }) => {
   });
 };
 
+const normalizeProjectKey = (key) => String(key || '').trim().toLowerCase().replace(/\s+/g, '-');
+
+const generateProjectKey = async (baseKey) => {
+  let candidate = normalizeProjectKey(baseKey);
+  if (!candidate) {
+    candidate = `project-${Date.now()}`;
+  }
+  let suffix = 1;
+  while (await prisma.project.findUnique({ where: { key: candidate } })) {
+    candidate = `${normalizeProjectKey(baseKey)}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+};
+
 const safeParseSettings = (settings) => {
   if (!settings) return {};
   if (typeof settings === 'string') {
@@ -73,10 +88,17 @@ export const createProject = async (req, res, next) => {
     }
 
     console.log('[PROJECT] Creating project:', name);
+    const normalizedKey = normalizeProjectKey(key || name);
+    if (!normalizedKey) {
+      return res.status(400).json({ message: 'Project key is required' });
+    }
+
+    const uniqueKey = await generateProjectKey(normalizedKey);
+
     const project = await prisma.project.create({
       data: {
         name,
-        key,
+        key: uniqueKey,
         icon,
         description,
         color,
@@ -122,6 +144,9 @@ export const createProject = async (req, res, next) => {
     res.status(201).json({ project });
   } catch (error) {
     console.error('[PROJECT] Create error:', error?.message, error?.stack);
+    if (error?.code === 'P2002' && error?.meta?.target?.includes('key')) {
+      return res.status(409).json({ message: 'Project key already exists. Please choose a different key.' });
+    }
     next(error);
   }
 };
