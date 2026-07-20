@@ -56,7 +56,7 @@ export const login = async (req, res, next) => {
     });
     res.cookie('accessToken', accessToken, {
       ...getCookieOptions(),
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: 15 * 60 * 1000,
     });
 
     res.json({

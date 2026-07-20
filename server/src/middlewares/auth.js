@@ -45,6 +45,7 @@ export const authenticate = async (req, res, next) => {
         res.setHeader('x-access-token', newAccessToken);
         return next();
       } catch (refreshError) {
+        console.error('[AUTH] authenticate refresh error:', refreshError?.message, refreshError?.stack);
         return res.status(401).json({ message: 'Invalid token' });
       }
     }
