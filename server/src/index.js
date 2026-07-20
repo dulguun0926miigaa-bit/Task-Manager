@@ -45,10 +45,19 @@ const ensureForeignKey = async ({ tableName, constraintName, createSql }) => {
       AND constraint_type = 'FOREIGN KEY'
   `;
 
-  if (!result || result.length === 0) {
+  const exists = Array.isArray(result) && result.length > 0;
+  if (!exists) {
     console.log(`[DB FIX] Foreign key ${constraintName} missing on ${tableName}, creating...`);
-    await prisma.$executeRawUnsafe(createSql);
-    console.log(`[DB FIX] Foreign key ${constraintName} created successfully on ${tableName}`);
+    try {
+      await prisma.$executeRawUnsafe(createSql);
+      console.log(`[DB FIX] Foreign key ${constraintName} created successfully on ${tableName}`);
+    } catch (createError) {
+      if (createError?.message?.includes('already exists')) {
+        console.log(`[DB FIX] Foreign key ${constraintName} already exists on ${tableName}`);
+      } else {
+        throw createError;
+      }
+    }
   } else {
     console.log(`[DB FIX] Foreign key ${constraintName} already exists on ${tableName}`);
   }
