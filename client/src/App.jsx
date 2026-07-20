@@ -250,6 +250,7 @@ const DashboardPage = ({ user, onLogout }) => {
   const [taskView, setTaskView] = useState('board');
   const [taskSearch, setTaskSearch] = useState('');
   const [taskPriorityFilter, setTaskPriorityFilter] = useState('ALL');
+  const [taskProjectFilter, setTaskProjectFilter] = useState('ALL');
   const [onlyMyTasks, setOnlyMyTasks] = useState(false);
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -561,7 +562,7 @@ const DashboardPage = ({ user, onLogout }) => {
   });
 
   const resetTaskForm = () => {
-    setTaskForm({ title: '', description: '', priority: 'MEDIUM', status: 'TODO', dueDate: '', groupId: '', projectId: selectedProjectId || '', issueTypeId: '', parentId: '', privacy: 'PUBLIC', type: '', assignedUserIds: [] });
+    setTaskForm({ title: '', description: '', priority: 'MEDIUM', status: 'TODO', dueDate: '', groupId: selectedWorkspaceId || '', projectId: selectedProjectId || '', issueTypeId: '', parentId: '', privacy: 'PUBLIC', type: '', assignedUserIds: [] });
     setEditingTaskId(null);
   };
 
@@ -852,21 +853,20 @@ const DashboardPage = ({ user, onLogout }) => {
   }, [groups, selectedWorkspaceId, workspaceDetails]);
 
   const visibleTasks = useMemo(() => {
-    if (selectedProjectId) {
-      return tasks.filter((task) => task.project?.id === selectedProjectId);
-    }
-    return tasks.filter((task) => task.groupId === selectedWorkspace?.id);
-  }, [tasks, selectedProjectId, selectedWorkspace]);
+    if (!selectedWorkspace?.id) return [];
+    return tasks.filter((task) => task.groupId === selectedWorkspace.id || task.project?.workspaceId === selectedWorkspace.id);
+  }, [tasks, selectedWorkspace]);
 
   const filteredTasks = useMemo(() => visibleTasks
     .filter((task) => !taskSearch || `${task.title} ${task.description || ''}`.toLowerCase().includes(taskSearch.toLowerCase()))
     .filter((task) => taskPriorityFilter === 'ALL' || task.priority === taskPriorityFilter)
+    .filter((task) => taskProjectFilter === 'ALL' || (taskProjectFilter === 'NO_PROJECT' ? !task.project?.id : task.project?.id === taskProjectFilter))
     .filter((task) => !onlyMyTasks || task.assignments?.some((assignment) => (assignment.userId || assignment.user?.id) === user.id))
     .sort((a, b) => {
       if (!a.dueDate) return 1;
       if (!b.dueDate) return -1;
       return new Date(a.dueDate) - new Date(b.dueDate);
-    }), [visibleTasks, taskSearch, taskPriorityFilter, onlyMyTasks, user.id]);
+    }), [visibleTasks, taskSearch, taskPriorityFilter, taskProjectFilter, onlyMyTasks, user.id]);
 
   const openTaskEditor = (task) => {
     setTaskForm({
@@ -888,7 +888,7 @@ const DashboardPage = ({ user, onLogout }) => {
   };
 
   const workspaceStats = useMemo(() => {
-    const workspaceTasks = tasks.filter((task) => task.groupId === selectedWorkspace?.id);
+    const workspaceTasks = tasks.filter((task) => task.groupId === selectedWorkspace?.id || task.project?.workspaceId === selectedWorkspace?.id);
     return {
       totalTasks: workspaceTasks.length,
       completedTasks: workspaceTasks.filter((task) => task.status === 'COMPLETED').length,
@@ -1158,6 +1158,9 @@ const DashboardPage = ({ user, onLogout }) => {
                 <input aria-label="Task хайх" placeholder="Task хайх…" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} />
                 <select aria-label="Priority шүүх" value={taskPriorityFilter} onChange={(event) => setTaskPriorityFilter(event.target.value)}>
                   <option value="ALL">Бүх priority</option><option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option><option value="URGENT">Urgent</option>
+                </select>
+                <select aria-label="Project шүүх" value={taskProjectFilter} onChange={(event) => setTaskProjectFilter(event.target.value)}>
+                  <option value="ALL">Бүх project</option><option value="NO_PROJECT">Project-гүй</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
                 </select>
                 <button className={onlyMyTasks ? 'is-active' : ''} onClick={() => setOnlyMyTasks((value) => !value)}>Миний ажлууд</button>
                 <div className="task-view-switch"><button className={taskView === 'board' ? 'is-active' : ''} onClick={() => setTaskView('board')}>Самбар</button><button className={taskView === 'list' ? 'is-active' : ''} onClick={() => setTaskView('list')}>Жагсаалт</button></div>
