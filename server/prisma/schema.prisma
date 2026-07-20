@@ -26,15 +26,15 @@ model User {
   suggestedConnections    ConnectionSuggestion[]   @relation("SuggestedUser")
   memberships             Membership[]
   ownedGroups             Group[]                  @relation("Owner")
-  ownedOrganizations      Organization[]
-  organizationMemberships OrganizationMembership[]
-  authProviders           UserAuthProvider[]
+  ownedOrganizations      Organization[]           @relation("OrganizationOwner")
+  organizationMemberships OrganizationMembership[] @relation("UserOrganizationMemberships")
+  authProviders           UserAuthProvider[]       @relation("UserAuthProviders")
   tasksCreated            Task[]                   @relation("Creator")
   taskAssignments         TaskAssignment[]
   taskLabels              TaskLabel[]
   timeEntries             TimeEntry[]
   comments                Comment[]
-  activityLogs            ActivityLog[]
+  activityLogs            ActivityLog[] @relation("UserActivityLogs")
   notifications           Notification[]
   groupMessages           GroupMessage[]
   readReceipts            ReadReceipt[]
@@ -341,11 +341,11 @@ model ActivityLog {
   groupId        String?
   projectId      String?
   organizationId String?
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User          @relation("UserActivityLogs", fields: [userId], references: [id], onDelete: Cascade)
   task           Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
   group          Group?        @relation(fields: [groupId], references: [id], onDelete: SetNull)
   project        Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization? @relation("OrganizationActivityLogs", fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("activity_logs")
 }
@@ -527,13 +527,13 @@ model Organization {
   ownerId        String
   createdAt      DateTime                 @default(now())
   updatedAt      DateTime                 @updatedAt
-  owner          User                     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner          User                     @relation("OrganizationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   groups         Group[]
   memberships    OrganizationMembership[]
   subscriptions  Subscription[]
   invoices       Invoice[]
   paymentMethods PaymentMethod[]
-  activityLogs   ActivityLog[]
+  activityLogs   ActivityLog[]           @relation("OrganizationActivityLogs")
 
   @@map("organizations")
 }
@@ -545,7 +545,7 @@ model OrganizationMembership {
   role           String       @default("MEMBER")
   joinedAt       DateTime     @default(now())
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User         @relation("UserOrganizationMemberships", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, userId])
   @@map("organization_memberships")
@@ -630,7 +630,7 @@ model UserAuthProvider {
   username   String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @default(now())
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User     @relation("UserAuthProviders", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerId])
   @@map("user_auth_providers")

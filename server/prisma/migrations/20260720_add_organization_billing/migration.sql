@@ -76,11 +76,37 @@ CREATE TABLE IF NOT EXISTS "payment_methods" (
 
 ALTER TABLE "groups" ADD COLUMN IF NOT EXISTS "organizationId" TEXT NULL;
 
-ALTER TABLE "organizations" ADD CONSTRAINT IF NOT EXISTS organizations_ownerId_fkey FOREIGN KEY ("ownerId") REFERENCES "users" ("id") ON DELETE CASCADE;
-ALTER TABLE "organization_memberships" ADD CONSTRAINT IF NOT EXISTS organization_memberships_organizationId_fkey FOREIGN KEY ("organizationId") REFERENCES "organizations" ("id") ON DELETE CASCADE;
-ALTER TABLE "organization_memberships" ADD CONSTRAINT IF NOT EXISTS organization_memberships_userId_fkey FOREIGN KEY ("userId") REFERENCES "users" ("id") ON DELETE CASCADE;
-ALTER TABLE "subscriptions" ADD CONSTRAINT IF NOT EXISTS subscriptions_organizationId_fkey FOREIGN KEY ("organizationId") REFERENCES "organizations" ("id") ON DELETE CASCADE;
-ALTER TABLE "subscriptions" ADD CONSTRAINT IF NOT EXISTS subscriptions_planId_fkey FOREIGN KEY ("planId") REFERENCES "subscription_plans" ("id") ON DELETE RESTRICT;
-ALTER TABLE "invoices" ADD CONSTRAINT IF NOT EXISTS invoices_organizationId_fkey FOREIGN KEY ("organizationId") REFERENCES "organizations" ("id") ON DELETE CASCADE;
-ALTER TABLE "invoices" ADD CONSTRAINT IF NOT EXISTS invoices_subscriptionId_fkey FOREIGN KEY ("subscriptionId") REFERENCES "subscriptions" ("id") ON DELETE SET NULL;
-ALTER TABLE "payment_methods" ADD CONSTRAINT IF NOT EXISTS payment_methods_organizationId_fkey FOREIGN KEY ("organizationId") REFERENCES "organizations" ("id") ON DELETE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE table_name='organizations' AND constraint_name='organizations_ownerId_fkey') THEN
+    ALTER TABLE "organizations" ADD CONSTRAINT organizations_ownerId_fkey FOREIGN KEY ("ownerId") REFERENCES "users" ("id") ON DELETE CASCADE;
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE table_name='organization_memberships' AND constraint_name='organization_memberships_organizationId_fkey') THEN
+    ALTER TABLE "organization_memberships" ADD CONSTRAINT organization_memberships_organizationId_fkey FOREIGN KEY ("organizationId") REFERENCES "organizations" ("id") ON DELETE CASCADE;
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE table_name='organization_memberships' AND constraint_name='organization_memberships_userId_fkey') THEN
+    ALTER TABLE "organization_memberships" ADD CONSTRAINT organization_memberships_userId_fkey FOREIGN KEY ("userId") REFERENCES "users" ("id") ON DELETE CASCADE;
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE table_name='subscriptions' AND constraint_name='subscriptions_organizationId_fkey') THEN
+    ALTER TABLE "subscriptions" ADD CONSTRAINT subscriptions_organizationId_fkey FOREIGN KEY ("organizationId") REFERENCES "organizations" ("id") ON DELETE CASCADE;
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE table_name='subscriptions' AND constraint_name='subscriptions_planId_fkey') THEN
+    ALTER TABLE "subscriptions" ADD CONSTRAINT subscriptions_planId_fkey FOREIGN KEY ("planId") REFERENCES "subscription_plans" ("id") ON DELETE RESTRICT;
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE table_name='invoices' AND constraint_name='invoices_organizationId_fkey') THEN
+    ALTER TABLE "invoices" ADD CONSTRAINT invoices_organizationId_fkey FOREIGN KEY ("organizationId") REFERENCES "organizations" ("id") ON DELETE CASCADE;
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE table_name='invoices' AND constraint_name='invoices_subscriptionId_fkey') THEN
+    ALTER TABLE "invoices" ADD CONSTRAINT invoices_subscriptionId_fkey FOREIGN KEY ("subscriptionId") REFERENCES "subscriptions" ("id") ON DELETE SET NULL;
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE table_name='payment_methods' AND constraint_name='payment_methods_organizationId_fkey') THEN
+    ALTER TABLE "payment_methods" ADD CONSTRAINT payment_methods_organizationId_fkey FOREIGN KEY ("organizationId") REFERENCES "organizations" ("id") ON DELETE CASCADE;
+  END IF;
+END $$;
