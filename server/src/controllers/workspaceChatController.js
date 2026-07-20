@@ -135,8 +135,18 @@ export const createChatMessage = async (req, res, next) => {
       }
     }
 
-    emitToRoom(roomId, 'chat:message', normalizePayload(message));
-    res.status(201).json({ message: normalizePayload(message) });
+    const payload = normalizePayload(message);
+    emitToRoom(roomId, 'chat:message', payload);
+    const room = await prisma.chatRoom.findUnique({ where: { id: roomId }, select: { workspaceId: true, projectId: true, members: { select: { userId: true } } } });
+    let recipientIds = room?.members?.map((member) => member.userId) || [];
+    if (room?.workspaceId) {
+      const memberships = await prisma.membership.findMany({ where: { groupId: room.workspaceId }, select: { userId: true } });
+      recipientIds = [...recipientIds, ...memberships.map((member) => member.userId)];
+    }
+    for (const userId of new Set(recipientIds)) {
+      if (userId !== req.user.id) emitToUser(userId, 'chat:unread', { roomId, messageId: message.id, type: room?.projectId ? 'PROJECT' : 'WORKSPACE' });
+    }
+    res.status(201).json({ message: payload });
   } catch (error) {
     next(error);
   }

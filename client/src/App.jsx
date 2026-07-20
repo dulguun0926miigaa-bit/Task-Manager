@@ -296,6 +296,7 @@ const DashboardPage = ({ user, onLogout }) => {
   const [roomDraft, setRoomDraft] = useState('');
   const [roomTypingUsers, setRoomTypingUsers] = useState([]);
   const [socketConnected, setSocketConnected] = useState(false);
+  const [unreadChatIds, setUnreadChatIds] = useState([]);
   const socketRef = useRef(null);
   const previousProjectRoomRef = useRef(null);
   const previousChatRoomRef = useRef(null);
@@ -453,6 +454,10 @@ const DashboardPage = ({ user, onLogout }) => {
       setGroupForm((prev) => ({ ...prev, organizationId: selectedOrganizationId }));
     }
   }, [selectedOrganizationId]);
+
+  useEffect(() => {
+    setChatRooms(workspaceChatRooms);
+  }, [workspaceChatRooms]);
 
   useEffect(() => {
     const hasSameMessages = chatMessages.length === chatHistory.length && chatMessages.every((message, index) => message.id === chatHistory[index]?.id);
@@ -940,6 +945,15 @@ const DashboardPage = ({ user, onLogout }) => {
       type: task.type || '',
       assignedUserIds: task.assignments?.map((item) => item.userId || item.user?.id) || [],
     });
+    socket.on('workspace:member-added', ({ workspaceId }) => {
+      queryClient.refetchQueries({ queryKey: ['groups'] });
+      queryClient.refetchQueries({ queryKey: ['workspace', workspaceId] });
+      toast.success('Workspace-д шинэ гишүүн нэмэгдлээ');
+    });
+    socket.on('chat:unread', ({ messageId }) => {
+      if (!messageId) return;
+      setUnreadChatIds((current) => current.includes(messageId) ? current : [...current, messageId]);
+    });
     setEditingTaskId(task.id);
     setShowTaskModal(true);
   };
@@ -1028,8 +1042,9 @@ const DashboardPage = ({ user, onLogout }) => {
               ['people', 'People', '◎'],
               ['inbox', 'Inbox', '◌'],
             ].map(([view, label, icon]) => (
-              <button key={view} className={activeView === view ? 'is-active' : ''} onClick={() => setActiveView(view)}>
+              <button key={view} className={activeView === view ? 'is-active' : ''} onClick={() => { setActiveView(view); if (view === 'chat') setUnreadChatIds([]); }}>
                 <span>{icon}</span>{label}
+                {view === 'chat' && unreadChatIds.length > 0 && <b>{unreadChatIds.length}</b>}
                 {view === 'inbox' && (requests.length + unreadNotificationCount) > 0 && <b>{requests.length + unreadNotificationCount}</b>}
               </button>
             ))}

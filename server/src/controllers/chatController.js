@@ -93,6 +93,7 @@ export const createProjectChatMessage = async (req, res, next) => {
     const memberIds = await prisma.projectMembership.findMany({ where: { projectId }, select: { userId: true } });
     for (const member of memberIds) {
       if (member.userId === req.user.id) continue;
+      emitToUser(member.userId, 'chat:unread', { roomId: room.chatRoom.id, projectId, messageId: message.id, type: 'PROJECT' });
       await createProjectNotification({
         userId: member.userId,
         type: 'message:new',

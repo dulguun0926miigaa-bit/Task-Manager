@@ -276,6 +276,10 @@ export const acceptGroupInvitation = async (req, res, next) => {
       console.warn('[GROUP] Workspace accepted but chat membership sync failed:', chatError?.message);
     }
     const group = await prisma.group.findUnique({ where: { id: invitation.groupId } });
+    const workspaceMembers = await prisma.membership.findMany({ where: { groupId: invitation.groupId }, select: { userId: true } });
+    for (const member of workspaceMembers) {
+      emitToUser(member.userId, 'workspace:member-added', { workspaceId: invitation.groupId, membership });
+    }
     res.json({ membership, group });
   } catch (error) {
     next(error);
@@ -308,6 +312,8 @@ export const addMemberToGroup = async (req, res, next) => {
     const newMembership = await prisma.membership.create({ data: { groupId: req.params.id, userId, role: 'MEMBER' } });
     await ensureWorkspaceChatMembership(req.params.id, userId);
     await addActivity({ userId: req.user.id, groupId: req.params.id, entity: 'member', action: 'added', details: 'Added a new member' });
+    const workspaceMembers = await prisma.membership.findMany({ where: { groupId: req.params.id }, select: { userId: true } });
+    for (const member of workspaceMembers) emitToUser(member.userId, 'workspace:member-added', { workspaceId: req.params.id, membership: newMembership });
     res.status(201).json({ membership: newMembership });
   } catch (error) {
     next(error);
