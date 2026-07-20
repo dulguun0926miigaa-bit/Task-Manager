@@ -568,11 +568,17 @@ const DashboardPage = ({ user, onLogout }) => {
 
   const createTaskMutation = useMutation({
     mutationFn: (payload) => api.post('/tasks', payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    onSuccess: async () => {
+      setOnlyMyTasks(false);
+      setTaskSearch('');
+      setTaskPriorityFilter('ALL');
+      setTaskProjectFilter('ALL');
+      setTaskView('board');
+      setActiveView('tasks');
+      await queryClient.invalidateQueries({ queryKey: ['tasks'] });
       setShowTaskModal(false);
       resetTaskForm();
-      toast.success('Task created');
+      toast.success('Task сонгосон баганад үүслээ');
     },
     onError: (error) => toast.error(error?.response?.data?.message || 'Could not create task'),
   });
@@ -1653,12 +1659,21 @@ const DashboardPage = ({ user, onLogout }) => {
                 <option value="HIGH">High</option>
                 <option value="URGENT">Urgent</option>
               </select>
-              <select className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={taskForm.status} onChange={(e) => setTaskForm({ ...taskForm, status: e.target.value })}>
-                <option value="TODO">Todo</option>
-                <option value="IN_PROGRESS">In Progress</option>
-                <option value="REVIEW">Review</option>
-                <option value="COMPLETED">Completed</option>
-              </select>
+              <fieldset>
+                <legend className="mb-2 text-sm text-slate-400">Самбарын багана</legend>
+                <div className="task-status-picker">
+                  {[
+                    ['TODO', 'Хийх'],
+                    ['IN_PROGRESS', 'Хийгдэж буй'],
+                    ['REVIEW', 'Шалгах'],
+                    ['COMPLETED', 'Дууссан'],
+                  ].map(([status, label]) => (
+                    <button key={status} type="button" className={taskForm.status === status ? 'is-active' : ''} onClick={() => setTaskForm({ ...taskForm, status })}>
+                      <span className={`status-dot status-${status.toLowerCase()}`} />{label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
               <select className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" value={taskForm.groupId} onChange={(e) => setTaskForm({ ...taskForm, groupId: e.target.value })}>
                 <option value="">No group</option>
                 {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
@@ -1690,7 +1705,7 @@ const DashboardPage = ({ user, onLogout }) => {
                     createTaskMutation.mutate(taskForm);
                   }
                 }
-              }}>Save</button>
+              }}>{editingTaskId ? 'Хадгалах' : 'Task үүсгэх'}</button>
             </div>
           </div>
         </div>
